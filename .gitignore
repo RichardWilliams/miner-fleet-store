@@ -1,0 +1,32 @@
+.DS_Store
+Thumbs.db
+.worktrees/
+.claude/projects/
+.claude/settings.json
+.claude/settings.local.json
+.local/
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+# Default OpenSSH/PuTTY key filenames only — a custom-named private key is
+# NOT caught by any pattern below. This list is not exhaustive; never place
+# key material of any name in this repo.
+id_rsa
+id_rsa.*
+id_ecdsa
+id_ecdsa.*
+id_ed25519
+id_ed25519.*
+id_dsa
+id_dsa.*
+*.ppk
+docker-compose.override.yml
+docker-compose.override.yaml
+compose.override.yml
+compose.override.yaml
+.vscode/
+!.vscode/extensions.json
+.idea/

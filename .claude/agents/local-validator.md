@@ -1,0 +1,1 @@
+../../.engine-context/codespace/.claude/agents/local-validator.md
