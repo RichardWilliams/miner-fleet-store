@@ -146,6 +146,17 @@ assert_case 'adversarial: comment naming the manifest version must NOT mask real
 root="$(make_fixture adversarial_false_reject 'version: "0.1.0"' "${GOOD_IMAGE}  # previously pinned richardwilliams/miner-fleet:0.0.9")"
 assert_case 'adversarial: comment naming an older version must NOT cause a false reject' 0 "$root" 'agree on 0.1.0'
 
+# The same collision class, applied to the MANIFEST side. Its extraction is
+# anchored and therefore safe by construction, but that was equally true of the
+# compose side by hand-tracing — right up until it wasn't. The lesson is
+# symmetric, so the coverage is too: a manual proof that a second occurrence
+# cannot be picked up is exactly the proof that failed twice already.
+root="$(make_fixture adversarial_manifest_comment 'version: "0.1.0"  # was version: 0.0.9 before the bump' "$GOOD_IMAGE")"
+assert_case 'adversarial: comment naming another version on the version line does not shift extraction' 0 "$root" 'agree on 0.1.0'
+
+root="$(make_fixture adversarial_manifest_drift 'version: "0.2.0"  # matches image tag 0.1.0' "$GOOD_IMAGE")"
+assert_case 'adversarial: comment on the version line must NOT mask real drift' 1 "$root" "declares '0.2.0'"
+
 # The variants must still DETECT drift — a pattern loosened until it matches
 # anything would pass the four cases above while proving nothing. Single-quoted
 # and drifted must fail.
@@ -195,6 +206,14 @@ assert_case 'malformed: mismatched quote characters fail closed' 1 "$root" "well
 root="$(make_fixture duplicate_version 'version: "0.1.0"' "$GOOD_IMAGE")"
 printf 'version: "0.9.9"\n' >> "${root}/${APP_ID}/umbrel-app.yml"
 assert_case 'ambiguous: two version lines fail closed' 1 "$root" 'cannot determine which is authoritative'
+
+# `require_exactly_one` is shared by both sides, so testing it on the manifest
+# alone leaves the compose call site unexercised. The same asymmetry — a guard
+# proven on one side and hand-reasoned on the other — is what let the compose
+# extraction bug survive two rounds.
+root="$(make_fixture duplicate_compose_image 'version: "0.1.0"' "$GOOD_IMAGE")"
+printf '%s\n' "$GOOD_IMAGE" >> "${root}/${APP_ID}/docker-compose.yml"
+assert_case 'ambiguous: two image lines fail closed' 1 "$root" 'cannot determine which is authoritative'
 
 # ---------------------------------------------------------------------------
 # Missing-file guard — the first thing the script checks.

@@ -31,7 +31,7 @@ manifest, the app manifest, the compose file, the icon, the operator runbook, an
 a version-drift check with its tests — but shipping content is not the same as
 having a repo-specific STYLE rule to write down. The canonical standards already
 govern everything here: the shell scripts by `coding-standards.md` § 9, the test
-fixtures by `testing-standards.md` § 3 and § 4, the YAML by nothing beyond
+fixtures by `testing-standards.md` § 4, the YAML by nothing beyond
 Umbrel's own schema. No rule has been needed that the canonical set does not
 already state, and no incident has occurred on this repo to write a receipt from.
 Inventing rules ahead of a failure they would have prevented is exactly what the
