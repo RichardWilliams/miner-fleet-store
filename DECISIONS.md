@@ -5,6 +5,13 @@ Revisit-if. Entries are appended as part of the originating PR that makes the
 decision, atomic with the structural change that implements it (codespace
 CLAUDE.md RULE #0).
 
+The three entries below transcribe decisions the operator already settled
+while scoping the store work, recorded in `miner-fleet-store#1`'s issue body —
+they are not new decisions made by this bootstrap PR. They are captured here
+so they are versioned with the repo ahead of the structural change; the
+compose file, manifests, and directory layout that implement them land with
+`#1`.
+
 ---
 
 ## 1. Store id `pipfox`, app id `pipfox-miner-fleet`, app directory name equal to the app id
