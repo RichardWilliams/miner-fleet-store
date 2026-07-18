@@ -54,12 +54,22 @@ fail() {
 # § Tool invocation correctness). Anchored at line start so a `version:` nested
 # inside another block cannot match.
 #
-# The manifest value is quoted ("0.1.0") to stop YAML reading a two-component
-# version as a float; the pattern accepts either quoting style rather than
-# silently missing an unquoted value.
+# The patterns accept every YAML spelling that is LEGITIMATE for these two
+# fields, because a gate that blocks a valid release edit is as much a defect as
+# one that misses a real drift — it just fails in the direction that looks safe.
+# Accepted variants: double-quoted, single-quoted, and unquoted values (all three
+# are valid YAML here; the quoting exists to stop YAML reading a two-component
+# version as a float, so an author may reasonably use either quote style), and a
+# trailing `# comment` on either line.
+#
+# The image name is duplicated in pipfox-miner-fleet/docker-compose.yml. Both
+# sites must move together if the app is ever republished under a different
+# name; this check fails closed on a mismatch rather than passing silently, so a
+# half-done rename surfaces here rather than on the operator's box.
 readonly SEMVER_ERE='[0-9]+\.[0-9]+\.[0-9]+'
-readonly MANIFEST_VERSION_ERE="^version:[[:space:]]+\"?${SEMVER_ERE}\"?[[:space:]]*$"
-readonly COMPOSE_IMAGE_ERE="^[[:space:]]+image:[[:space:]]+ghcr\.io/richardwilliams/miner-fleet:${SEMVER_ERE}@sha256:[0-9a-f]{64}[[:space:]]*$"
+readonly TRAILING_ERE='[[:space:]]*(#.*)?$'
+readonly MANIFEST_VERSION_ERE="^version:[[:space:]]+['\"]?${SEMVER_ERE}['\"]?${TRAILING_ERE}"
+readonly COMPOSE_IMAGE_ERE="^[[:space:]]+image:[[:space:]]+ghcr\.io/richardwilliams/miner-fleet:${SEMVER_ERE}@sha256:[0-9a-f]{64}${TRAILING_ERE}"
 
 # A field appearing twice is ambiguous — the check cannot know which copy is
 # authoritative, and picking one would be a guess. Both zero matches and more
@@ -80,7 +90,11 @@ require_exactly_one "$manifest_matches" "well-formed 'version:' line" "$manifest
 compose_matches="$(grep -cE "$COMPOSE_IMAGE_ERE" "$compose" || true)"
 require_exactly_one "$compose_matches" "well-formed pinned 'image:' line" "$compose"
 
-manifest_version="$(grep -E "$MANIFEST_VERSION_ERE" "$manifest" | sed -E 's/^version:[[:space:]]+"?//; s/"?[[:space:]]*$//')"
+# Strip in order: the key, any trailing comment, surrounding quotes of either
+# style, then trailing whitespace. The compose extraction needs no comment strip
+# because `@sha256:.*$` already consumes anything after the digest.
+manifest_version="$(grep -E "$MANIFEST_VERSION_ERE" "$manifest" \
+  | sed -E "s/^version:[[:space:]]+//; s/[[:space:]]*#.*$//; s/^['\"]//; s/['\"]$//; s/[[:space:]]*$//")"
 compose_version="$(grep -E "$COMPOSE_IMAGE_ERE" "$compose" | sed -E 's|^.*/miner-fleet:||; s|@sha256:.*$||')"
 
 # Belt-and-braces: the extraction must itself produce a semver. If a future edit

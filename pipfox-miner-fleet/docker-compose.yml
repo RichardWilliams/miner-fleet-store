@@ -17,9 +17,36 @@ services:
     # release-image.yml — not the inner per-platform manifest digest — because
     # umbreld resolves the index. Bump both halves together on every release;
     # DEPLOY.md names this line as one of the two edit sites.
+    # NOTE: the image NAME is also hardcoded in scripts/check-version-drift.sh's
+    # COMPOSE_IMAGE_ERE. Both sites move together if the app is republished
+    # under a different name; the check fails closed on a mismatch, so a
+    # half-done rename surfaces at push rather than on the operator's box.
     image: ghcr.io/richardwilliams/miner-fleet:0.1.0@sha256:da0e81a0f568255bd6dac6f12274c9aec88661bba9a49057cfb57b5974e74c01
     restart: on-failure
     stop_grace_period: 1m
+
+    # Defense in depth. The app dials arbitrary LAN addresses to reach the
+    # miners, so it is worth constraining what a compromised process could do
+    # beyond that. It already runs as a non-root user (uid 1001) baked into the
+    # image; these two make privilege ESCALATION unavailable rather than merely
+    # unused. Neither affects outbound TCP/HTTP, which is all the app needs.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    # Surfaces process health to umbreld and the Umbrel UI. Read this for what
+    # it does and does NOT buy: Docker's `restart:` policy does not act on
+    # health status, so this does NOT auto-restart a hung-but-alive process —
+    # that needs an external supervisor acting on the status. What it gives is
+    # an honest health signal in place of "the container is running", which is
+    # all `restart: on-failure` can report on its own.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     # Bridge networking, NOT network_mode: host (DECISIONS.md entry 2). A bridge
     # container already reaches arbitrary LAN addresses outbound, which is what
     # sweeping the miners' HTTP API needs; host networking would additionally

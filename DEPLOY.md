@@ -126,6 +126,22 @@ public and that `umbrel-app-store.yml` is at the repo root. Then confirm the app
 directory name is byte-for-byte equal to the app id — a mismatch makes the app
 invisible to the store scan rather than producing a diagnosable error.
 
+**The container is running but the browser shows a gateway/proxy error.** The
+app itself is fine; `app_proxy` cannot reach it. `app_proxy` resolves the
+application container by the compose-generated name in its `APP_HOST` — currently
+`pipfox-miner-fleet_server_1` — so renaming the `server` service, or changing the
+app id without changing `APP_HOST` to match, breaks the proxy while leaving the
+container up and healthy. Nothing reports this as a misconfiguration: the app
+looks installed and running, and only the browser sees the failure. Check that
+the compose service is still named `server` and that `APP_HOST` still reads
+`<app-id>_server_1`.
+
+**The Umbrel UI shows the app as unhealthy.** The `healthcheck` polls
+`/api/health` inside the container. Note this does not by itself restart
+anything — Docker's `restart:` policy does not act on health status — so an
+unhealthy-but-running app stays up and must be restarted from the Umbrel UI.
+Check the app's logs for why the endpoint stopped answering.
+
 ---
 
 ## 5. Decisions and why they are not free to change

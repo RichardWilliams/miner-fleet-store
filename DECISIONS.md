@@ -86,3 +86,67 @@ read and a machine cannot misresolve.
 tag-and-digest reference, or a release process is adopted that provides an
 equally reproducible and equally legible identifier — the requirement is the pair
 of properties, not this particular syntax.
+
+---
+
+## 4. The pinned digest is the multi-arch INDEX digest, not a per-platform manifest digest
+
+**Statement.** The `@sha256:` value in `docker-compose.yml` is the digest of the
+multi-arch image INDEX — the value on the `Digest:` line of
+`docker buildx imagetools inspect ghcr.io/richardwilliams/miner-fleet:X.Y.Z`. It
+is NOT any of the per-platform manifest digests listed underneath it in that
+command's `Manifests:` section. DEPLOY.md § 3 step 1 states which line to read.
+
+**Why.** Both values are valid 64-hex digests and both are immutable, so nothing
+about the syntax distinguishes them and no check catches the wrong one: a
+per-platform digest is *silently correct today and silently wrong the moment the
+index changes*. umbreld resolves the index and selects the platform entry from
+it, so pinning an inner manifest bypasses that selection and couples the store to
+one specific platform build. Today the index contains exactly one real platform
+(`linux/amd64`, entry 4) plus an attestation manifest, which is precisely what
+makes the mistake invisible — the wrong pin would deploy correctly right up until
+the release that adds or changes a platform, at which point it breaks with no
+diff to explain it.
+
+The distinction is a CORRECTNESS property, not a security one. Both forms are
+equally immutable content-addressable pins; the security review confirmed the
+supply-chain guarantee is identical either way. What differs is whether umbreld
+can still resolve the right artefact after the index changes.
+
+**Revisit if.** umbreld changes how it resolves image references (verify against
+its source, not by observing that a deployment happened to work), or the image
+stops being published as a multi-arch index.
+
+---
+
+## 5. The app icon is self-hosted in this repo and referenced by its raw URL
+
+**Statement.** The icon asset is committed at `pipfox-miner-fleet/icon.svg` and
+`umbrel-app.yml`'s `icon:` field points at this repo's own
+`raw.githubusercontent.com` URL on the `main` ref. It is NOT hosted on a
+third-party image host such as svgur or imgur, and the URL is deliberately NOT
+pinned to a commit SHA.
+
+**Why.** Umbrel renders the dashboard tile from an https URL in the `icon:`
+field; a community-store app directory contains only the two YAML files, so no
+icon file is discovered from the directory itself. That leaves a choice of host.
+Self-hosting keeps the asset versioned alongside the manifest that references it
+and puts no third-party host in the dashboard's render path — the same
+disappears-when-someone-else's-service-does risk that applies to any external
+asset. The repo is already public and cloned unauthenticated by umbreld, so the
+raw URL resolves without credentials by the same property.
+
+The `main` ref is a deliberate exception to this repo's otherwise-strict pinning
+discipline (entry 3), and the reasoning is mechanical rather than a preference: a
+commit-SHA-pinned icon URL cannot be authored in the commit that introduces the
+icon, because that commit's SHA does not yet exist — and the branch SHA is
+destroyed by squash-merge, so the value could only ever be set by editing the
+manifest AFTER merge. That makes it a third field to keep in sync on every
+release, to remove a risk (someone force-pushing a hostile icon over `main`) that
+already requires write access to this repo, at which point the manifest itself is
+equally rewritable. `gallery` entries, when any exist, follow this same rule.
+
+**Revisit if.** Umbrel gains support for a directory-relative icon path (making
+the hosting question moot), or this repo takes external contributors — at which
+point `main` is no longer only writable by the operator and the pinning
+trade-off above changes shape.

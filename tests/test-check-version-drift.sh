@@ -104,6 +104,36 @@ root="$(make_fixture match 'version: "0.1.0"' "$GOOD_IMAGE")"
 assert_case 'match: manifest 0.1.0 == compose 0.1.0 passes' 0 "$root" 'OK'
 
 # ---------------------------------------------------------------------------
+# Cases 1a-1d — LEGITIMATE VARIANTS must PASS.
+#
+# These exist because the first version of this suite tested only the
+# fail-closed direction. Every case asserted "bad input is rejected" and none
+# asserted "good input is accepted", so a pattern that was too STRICT passed the
+# whole suite: single-quoted values and trailing comments — both valid YAML for
+# these fields — were rejected as malformed, which would have blocked a correct
+# release edit. A gate that refuses valid work fails in the direction that looks
+# safe, which is why it survived review until a reviewer ran the variants by
+# hand. Asymmetric coverage is the defect these cases close.
+# ---------------------------------------------------------------------------
+root="$(make_fixture variant_single_quote "version: '0.1.0'" "$GOOD_IMAGE")"
+assert_case 'variant: single-quoted version passes' 0 "$root" 'OK'
+
+root="$(make_fixture variant_unquoted 'version: 0.1.0' "$GOOD_IMAGE")"
+assert_case 'variant: unquoted version passes' 0 "$root" 'OK'
+
+root="$(make_fixture variant_manifest_comment 'version: "0.1.0"  # bumped by the release procedure' "$GOOD_IMAGE")"
+assert_case 'variant: trailing comment on version passes' 0 "$root" 'OK'
+
+root="$(make_fixture variant_compose_comment 'version: "0.1.0"' "${GOOD_IMAGE}  # index digest, not per-platform")"
+assert_case 'variant: trailing comment on image passes' 0 "$root" 'OK'
+
+# The variants must still DETECT drift — a pattern loosened until it matches
+# anything would pass the four cases above while proving nothing. Single-quoted
+# and drifted must fail.
+root="$(make_fixture variant_quote_drift "version: '0.2.0'" "$GOOD_IMAGE")"
+assert_case 'variant: single-quoted 0.2.0 vs compose 0.1.0 still fails' 1 "$root" 'version drift'
+
+# ---------------------------------------------------------------------------
 # Case 2 — DRIFT. This is the real-world failure: a release PR bumps the
 # manifest and forgets the compose pin. Umbrel would display 0.2.0 while the box
 # runs 0.1.0. Must fail, and must name both values so the diagnosis is immediate.
