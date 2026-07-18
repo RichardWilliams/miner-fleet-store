@@ -1,0 +1,11 @@
+.DS_Store
+Thumbs.db
+.worktrees/
+.claude/projects/
+.claude/settings.local.json
+.local/
+.env
+.env.*
+.vscode/
+!.vscode/extensions.json
+.idea/
