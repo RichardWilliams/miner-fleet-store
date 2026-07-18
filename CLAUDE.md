@@ -70,12 +70,20 @@ of them.
 
 ## Validation
 
-**This repo has no `package.json`, no build, no test runner, and no TypeScript.**
-There is no lint, type-check, compile, or unit-test command to run, and this file
-deliberately does not claim one. Do not copy a validation command block from
-`miner-fleet` or any sibling repo into this file — those commands cannot run
-here, and a validation section that names commands the repo does not have is a
-false claim about the repo.
+**This repo has no `package.json`, no build, and no TypeScript.** There is no
+lint, type-check, or compile command to run, and this file deliberately does not
+claim one. Do not copy a validation command block from `miner-fleet` or any
+sibling repo into this file — those commands cannot run here, and a validation
+section that names commands the repo does not have is a false claim about the
+repo.
+
+It does have a mechanical check. `.local-ci.yml` is the canonical step set, run
+identically by the push gate and by CI inside the pinned image:
+
+```bash
+bash scripts/check-version-drift.sh      # manifest version vs compose image tag
+bash tests/test-check-version-drift.sh   # that check's own tests
+```
 
 What replaces it, before any push:
 

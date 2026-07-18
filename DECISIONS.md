@@ -14,13 +14,14 @@ change, per codespace CLAUDE.md RULE #0.
 
 ---
 
-## 1. Store id `pipfox`, app id `pipfox-miner-fleet`, app directory name equal to the app id
+## 1. Store id `pipfox`, app id `pipfox-miner-fleet`, app directory name equal to the app id, compose service named `server`
 
 **Statement.** The store id is `pipfox`. The app id is `pipfox-miner-fleet`. The
 app directory at the repo root is named `pipfox-miner-fleet` — byte-for-byte the
-app id, with no suffix, no variation, and no separate display slug. The three
-names are one decision, not three: changing any of them requires changing all
-three in the same commit.
+app id, with no suffix, no variation, and no separate display slug. The
+application service in `docker-compose.yml` is named `server`, and `app_proxy`'s
+`APP_HOST` is `pipfox-miner-fleet_server_1`. These four names are one decision,
+not four: changing any of them requires changing all of them in the same commit.
 
 **Why.** umbrelOS imposes both halves of the constraint. An app id must be
 prefixed with the id of the store that ships it, so the app cannot be called
@@ -30,6 +31,16 @@ app id exactly; a mismatch makes the app invisible to the store scan rather than
 producing a diagnosable error. Because the store id feeds the app id and the app
 id feeds the directory name, a partial rename leaves the store in a state that
 looks correct in the diff and silently fails to install.
+
+The service name is the fourth link in that same chain, and fails the same way.
+Umbrel injects `app_proxy` — the reverse proxy and authentication layer in front
+of the app — and it locates the application container by the compose-generated
+name in `APP_HOST`. Compose derives that name from the project (the app id) and
+the service, so `pipfox-miner-fleet_server_1` is only correct while the service
+is literally named `server`. Rename the service, or change the app id without
+updating `APP_HOST`, and the container starts healthy while the proxy in front of
+it resolves nothing: the operator sees a gateway error in the browser and no
+indication anywhere that the configuration is wrong.
 
 **Revisit if.** umbrelOS drops the store-id prefix requirement or the
 id-equals-directory-name requirement, or the operator retires the `pipfox` store

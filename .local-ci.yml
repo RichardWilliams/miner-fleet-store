@@ -26,8 +26,8 @@
 steps:
   # The store-side half of the version-drift chain. miner-fleet's
   # release-image.yml already fails a release on git-tag vs package.json drift
-  # (its DECISIONS.md entry 6); this catches manifest vs compose drift, which
-  # would otherwise let Umbrel display one version while running another.
+  # (miner-fleet's DECISIONS.md entry 6); this catches manifest vs compose drift,
+  # which would otherwise let Umbrel display one version while running another.
   - name: version-drift
     run: bash scripts/check-version-drift.sh
     timeout: 60

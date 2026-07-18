@@ -9,21 +9,26 @@ almost no code here to factor.
 
 ## What is actually in this repo
 
-- **Declarative metadata only.** A store manifest, an app manifest, and a compose
-  file. No application source, no `package.json`, no build step, no test runner,
-  no TypeScript. A reviewer looking for unit tests or a type-check gate should
-  expect to find none — that absence is the design, not a gap.
+- **Declarative metadata plus one guard.** A store manifest, an app manifest, a
+  compose file and the app icon. No application source, no `package.json`, no
+  build step, no TypeScript. A reviewer looking for a type-check gate should
+  expect to find none — that absence is the design, not a gap. There IS a shell
+  check (`scripts/check-version-drift.sh`) with its own test suite, wired into
+  `.local-ci.yml`; it guards the one thing this repo can get silently wrong,
+  which is the app manifest's `version` disagreeing with the compose image tag.
 - **A machine consumer, not a human one.** umbrelOS's `umbreld` clones this repo
   over plain git and re-polls it on a short interval, parses the manifests, and
   reconciles the running container against them. Errors surface as an app that
   quietly fails to appear or fails to install, rarely as a readable message. A
   malformed field here is a silent production failure, which is why manifest
   correctness carries more weight than it would in a repo with a compiler.
-- **Currently bootstrap only.** At the time of writing the repo holds a README
-  and the managed-repo scaffolding. The store manifest, the app directory, and
-  the compose file do not exist yet, and the image pin they will carry depends on
-  `miner-fleet` cutting a real semver release first. Do not review their absence
-  as an omission.
+- **The store is live.** The store manifest, the `pipfox-miner-fleet/` app
+  directory, its app manifest and its compose file all exist, pinning a real
+  `miner-fleet` semver release by tag AND digest. The five permanent constraints
+  that govern them — naming (including the compose service name), bridge
+  networking, tag+digest pinning, which digest form to pin, and icon hosting —
+  are recorded in `DECISIONS.md`. Read it before changing any of them; each was
+  chosen against an alternative that fails silently rather than loudly.
 
 ## The world-readable constraint dominates everything
 
