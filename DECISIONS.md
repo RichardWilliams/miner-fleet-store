@@ -20,10 +20,12 @@ change, per codespace CLAUDE.md RULE #0.
 app directory at the repo root is named `pipfox-miner-fleet` — byte-for-byte the
 app id, with no suffix, no variation, and no separate display slug. The
 application service in `docker-compose.yml` is named `server`, and `app_proxy`'s
-`APP_HOST` is `pipfox-miner-fleet_server_1`. These four names are one decision,
-not four: changing any of them requires changing all of them in the same commit.
+`APP_HOST` is `pipfox-miner-fleet_server_1`. These four names are one identifier
+chain: each derives from the one before it, so changing any name requires
+updating everything downstream of it in the same commit — a store-id change
+reaches all four, a service rename reaches only `APP_HOST`.
 
-**Why.** umbrelOS imposes both halves of the constraint. An app id must be
+**Why.** umbrelOS imposes the first two links. An app id must be
 prefixed with the id of the store that ships it, so the app cannot be called
 `miner-fleet` while the store is called `pipfox` — umbreld will not resolve it.
 And the app is located on disk by its id, so the directory name must equal the
@@ -42,10 +44,11 @@ updating `APP_HOST`, and the container starts healthy while the proxy in front o
 it resolves nothing: the operator sees a gateway error in the browser and no
 indication anywhere that the configuration is wrong.
 
-**Revisit if.** umbrelOS drops the store-id prefix requirement or the
-id-equals-directory-name requirement, or the operator retires the `pipfox` store
-identity in favour of a different one — in which case all three names move
-together in a single change.
+**Revisit if.** umbrelOS drops the store-id prefix requirement, the
+id-equals-directory-name requirement, or `app_proxy`'s `<app-id>_server_1`
+host-resolution convention; or the operator retires the `pipfox` store identity
+in favour of a different one. A store-identity change sits at the head of the
+chain, so it moves all four names in a single commit.
 
 ---
 
