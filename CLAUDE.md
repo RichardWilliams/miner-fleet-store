@@ -126,8 +126,9 @@ The real recovery sequence is two steps:
 1. Run `realign-engine-context.sh <worktree> <codespace>`. This materialises
    the `.engine-context/` snapshot that every tracked symlink points into, and
    writes the `.engine-context/` line into `.git/info/exclude`. It detects
-   this repo as managed via the already-present `.claude/hooks` /
-   `.claude/agents` symlinks — a dangling symlink still satisfies that
+   this repo as managed via the already-present `.claude/hooks` symlink
+   (`.claude/agents` is a plain directory of individually-symlinked files, not
+   itself a detection marker) — a dangling symlink still satisfies that
    detection (`-L` is true regardless of whether the target resolves), so this
    step runs correctly with no prior symlink-creation step.
 2. Run `sync-settings.sh --repo <worktree>` to generate `.claude/settings.json`
