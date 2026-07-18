@@ -127,6 +127,25 @@ assert_case 'variant: trailing comment on version passes' 0 "$root" 'OK'
 root="$(make_fixture variant_compose_comment 'version: "0.1.0"' "${GOOD_IMAGE}  # index digest, not per-platform")"
 assert_case 'variant: trailing comment on image passes' 0 "$root" 'OK'
 
+# ---------------------------------------------------------------------------
+# ADVERSARIAL comment collisions.
+#
+# The inert comment above cannot catch the real bug, because its text shares no
+# substring with the image name. The extraction was previously an unanchored
+# `s|^.*/miner-fleet:||`, so a comment containing a SECOND `/miner-fleet:X.Y.Z`
+# token made sed strip through the LAST occurrence and read the version out of
+# the comment. Both directions were live and are pinned here.
+#
+# These assert on the extracted VERSION in the message, not just the exit code:
+# case (a) passed its exit-code check even while broken, because it reported
+# agreement on the comment's version rather than the real pin.
+# ---------------------------------------------------------------------------
+root="$(make_fixture adversarial_masks_drift 'version: "0.2.0"' "${GOOD_IMAGE}  # bumping to richardwilliams/miner-fleet:0.2.0")"
+assert_case 'adversarial: comment naming the manifest version must NOT mask real drift' 1 "$root" "pins image tag '0.1.0'"
+
+root="$(make_fixture adversarial_false_reject 'version: "0.1.0"' "${GOOD_IMAGE}  # previously pinned richardwilliams/miner-fleet:0.0.9")"
+assert_case 'adversarial: comment naming an older version must NOT cause a false reject' 0 "$root" 'agree on 0.1.0'
+
 # The variants must still DETECT drift — a pattern loosened until it matches
 # anything would pass the four cases above while proving nothing. Single-quoted
 # and drifted must fail.
@@ -161,6 +180,13 @@ assert_case "malformed: absent manifest 'version:' fails closed" 1 "$root" "well
 # the pattern must reject it rather than compare it successfully.
 root="$(make_fixture malformed_no_digest 'version: "0.1.0"' '    image: ghcr.io/richardwilliams/miner-fleet:0.1.0')"
 assert_case 'malformed: tag without digest fails closed' 1 "$root" 'well-formed pinned'
+
+# Malformed, fourth shape — mismatched quote characters. Valid-looking but not
+# valid YAML. Accepting it would contradict the fail-closed contract, and the
+# earlier `['\"]?...['\"]?` form did exactly that by matching the opening and
+# closing quote independently.
+root="$(make_fixture malformed_mismatched_quotes "version: '0.1.0\"" "$GOOD_IMAGE")"
+assert_case 'malformed: mismatched quote characters fail closed' 1 "$root" "well-formed 'version:'"
 
 # ---------------------------------------------------------------------------
 # Falsifiability guard — a duplicated field is ambiguous, and picking one copy

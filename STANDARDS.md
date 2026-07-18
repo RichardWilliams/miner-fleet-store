@@ -11,8 +11,9 @@ standards documents vendored into this repo's snapshot are:
 snapshot's doc set is uniform across every managed repo in this estate, and no
 repo vendors it, including repos that do have test suites. This repo now has one
 (`tests/test-check-version-drift.sh`), and it is written to that document's rules
-regardless: § 3.1 fail-closed stubs and § 4.1 hermetic fixtures, both cited in
-the file's own header. Read the canonical copy in the codespace repo when
+regardless: § 4.1 hermetic fixtures, cited in the file's own header. (§ 3.1
+fail-closed stubs does not apply — it governs `FAKE_BIN` stubs of external CLIs,
+and this suite stubs no CLI.) Read the canonical copy in the codespace repo when
 editing it; it is named here so its absence from the list above reads as a
 property of the snapshot rather than as an oversight.
 

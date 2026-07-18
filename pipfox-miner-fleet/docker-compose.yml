@@ -17,10 +17,8 @@ services:
     # release-image.yml — not the inner per-platform manifest digest — because
     # umbreld resolves the index. Bump both halves together on every release;
     # DEPLOY.md names this line as one of the two edit sites.
-    # NOTE: the image NAME is also hardcoded in scripts/check-version-drift.sh's
-    # COMPOSE_IMAGE_ERE. Both sites move together if the app is republished
-    # under a different name; the check fails closed on a mismatch, so a
-    # half-done rename surfaces at push rather than on the operator's box.
+    # The image NAME is also hardcoded in scripts/check-version-drift.sh — see
+    # that file's IMAGE_NAME_ERE for why both sites move together.
     image: ghcr.io/richardwilliams/miner-fleet:0.1.0@sha256:da0e81a0f568255bd6dac6f12274c9aec88661bba9a49057cfb57b5974e74c01
     restart: on-failure
     stop_grace_period: 1m

@@ -5,12 +5,12 @@ Revisit-if. Entries are appended as part of the originating PR that makes the
 decision, atomic with the structural change that implements it (codespace
 CLAUDE.md RULE #0).
 
-The three entries below transcribe decisions the operator already settled
-while scoping the store work, recorded in `miner-fleet-store#1`'s issue body —
-they are not new decisions made by this bootstrap PR. They are captured here
-so they are versioned with the repo ahead of the structural change; the
-compose file, manifests, and directory layout that implement them land with
-`#1`.
+Entries 1-3 transcribe decisions the operator settled while scoping the store
+work, recorded in `miner-fleet-store#1`'s issue body; they were captured by the
+bootstrap PR ahead of the structural change that implements them. Entries 4-5
+are decisions made by `#1` itself — the PR that landed the manifests, the compose
+file and the directory layout — and are appended by that PR, atomic with the
+change, per codespace CLAUDE.md RULE #0.
 
 ---
 
@@ -115,7 +115,10 @@ can still resolve the right artefact after the index changes.
 
 **Revisit if.** umbreld changes how it resolves image references (verify against
 its source, not by observing that a deployment happened to work), or the image
-stops being published as a multi-arch index.
+stops being published as a multi-arch index, or miner-fleet's runtime image stops
+carrying `node` with a global `fetch` — the compose healthcheck shells out to
+both, an assumption that lives in the sibling repo's Dockerfile and nothing here
+guards.
 
 ---
 
@@ -127,26 +130,20 @@ stops being published as a multi-arch index.
 third-party image host such as svgur or imgur, and the URL is deliberately NOT
 pinned to a commit SHA.
 
-**Why.** Umbrel renders the dashboard tile from an https URL in the `icon:`
-field; a community-store app directory contains only the two YAML files, so no
-icon file is discovered from the directory itself. That leaves a choice of host.
-Self-hosting keeps the asset versioned alongside the manifest that references it
-and puts no third-party host in the dashboard's render path — the same
-disappears-when-someone-else's-service-does risk that applies to any external
-asset. The repo is already public and cloned unauthenticated by umbreld, so the
-raw URL resolves without credentials by the same property.
+**Why.** Umbrel renders the tile from an https URL, and a community-store app
+directory holds only the two YAML files, so the icon must be hosted somewhere.
+Self-hosting keeps it versioned with the manifest that references it and puts no
+third party in the dashboard's render path.
 
-The `main` ref is a deliberate exception to this repo's otherwise-strict pinning
-discipline (entry 3), and the reasoning is mechanical rather than a preference: a
-commit-SHA-pinned icon URL cannot be authored in the commit that introduces the
-icon, because that commit's SHA does not yet exist — and the branch SHA is
-destroyed by squash-merge, so the value could only ever be set by editing the
-manifest AFTER merge. That makes it a third field to keep in sync on every
-release, to remove a risk (someone force-pushing a hostile icon over `main`) that
-already requires write access to this repo, at which point the manifest itself is
-equally rewritable. `gallery` entries, when any exist, follow this same rule.
+The `main` ref is a deliberate exception to entry 3's pinning discipline, on
+mechanical grounds: a commit-SHA-pinned icon URL cannot be authored in the commit
+that introduces the icon, and squash-merge destroys the branch SHA, so it could
+only be set by a post-merge edit. The risk it would remove — a hostile icon
+force-pushed over `main` — already requires write access to this repo, at which
+point the `icon:` field is equally rewritable. Entry 3's digest pin is different
+in kind: it defends against a compromised registry credential with no git access.
+`gallery` entries follow this same rule.
 
-**Revisit if.** Umbrel gains support for a directory-relative icon path (making
-the hosting question moot), or this repo takes external contributors — at which
-point `main` is no longer only writable by the operator and the pinning
-trade-off above changes shape.
+**Revisit if.** Umbrel supports a directory-relative icon path, or this repo
+takes external contributors — at which point `main` is no longer operator-only
+and the trade-off changes shape.

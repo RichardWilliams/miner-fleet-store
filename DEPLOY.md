@@ -166,6 +166,19 @@ the third is unreadable.
 `APP_HOST: pipfox-miner-fleet_server_1`; the `_server_1` suffix is a hard naming
 contract. Renaming the service silently breaks the proxy.
 
+**The digest is the multi-arch INDEX digest** (entry 4), not one of the
+per-platform manifest digests listed beneath it. Both are valid 64-hex digests,
+so nothing about the syntax tells them apart and no check catches the wrong one —
+a per-platform digest deploys correctly right up until the release that changes
+the index, then breaks with no diff to explain it. § 3 step 1 names the line to
+read.
+
+**The icon URL is on `main`, deliberately unpinned** (entry 5). It is the one
+exception to the pinning discipline above, and the reason is mechanical: the
+commit SHA does not exist when the icon is authored, and squash-merge destroys
+the branch SHA. Do not "fix" it to look consistent with the image pin — the two
+defend against different things.
+
 **No volumes.** The application is stateless at this version — no database, and
 nothing it writes needs to survive a restart. Declaring storage the app never
 touches would be configuration added in case it is needed later. When the app

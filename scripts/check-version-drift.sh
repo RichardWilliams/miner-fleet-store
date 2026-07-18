@@ -68,8 +68,16 @@ fail() {
 # half-done rename surfaces here rather than on the operator's box.
 readonly SEMVER_ERE='[0-9]+\.[0-9]+\.[0-9]+'
 readonly TRAILING_ERE='[[:space:]]*(#.*)?$'
-readonly MANIFEST_VERSION_ERE="^version:[[:space:]]+['\"]?${SEMVER_ERE}['\"]?${TRAILING_ERE}"
-readonly COMPOSE_IMAGE_ERE="^[[:space:]]+image:[[:space:]]+ghcr\.io/richardwilliams/miner-fleet:${SEMVER_ERE}@sha256:[0-9a-f]{64}${TRAILING_ERE}"
+readonly IMAGE_NAME_ERE='ghcr\.io/richardwilliams/miner-fleet'
+# Quote handling is an alternation of three whole forms, NOT two independently
+# optional quote classes. `['\"]?VALUE['\"]?` would accept a MISMATCHED pair
+# (`version: '0.1.0"`), which is not valid YAML, and passing it as "well-formed"
+# contradicts this script's own fail-closed contract. POSIX ERE has no
+# backreference to require the closing quote match the opening one, so the three
+# legal spellings are enumerated instead.
+readonly QUOTED_SEMVER_ERE="(\"${SEMVER_ERE}\"|'${SEMVER_ERE}'|${SEMVER_ERE})"
+readonly MANIFEST_VERSION_ERE="^version:[[:space:]]+${QUOTED_SEMVER_ERE}${TRAILING_ERE}"
+readonly COMPOSE_IMAGE_ERE="^[[:space:]]+image:[[:space:]]+${IMAGE_NAME_ERE}:${SEMVER_ERE}@sha256:[0-9a-f]{64}${TRAILING_ERE}"
 
 # A field appearing twice is ambiguous — the check cannot know which copy is
 # authoritative, and picking one would be a guess. Both zero matches and more
@@ -90,12 +98,24 @@ require_exactly_one "$manifest_matches" "well-formed 'version:' line" "$manifest
 compose_matches="$(grep -cE "$COMPOSE_IMAGE_ERE" "$compose" || true)"
 require_exactly_one "$compose_matches" "well-formed pinned 'image:' line" "$compose"
 
-# Strip in order: the key, any trailing comment, surrounding quotes of either
-# style, then trailing whitespace. The compose extraction needs no comment strip
-# because `@sha256:.*$` already consumes anything after the digest.
+# BOTH extractions anchor at `^` on the SAME structural prefix their grep
+# pattern matched. Neither may use a bare `.*` search for a substring that can
+# appear anywhere in the line.
+#
+# This is load-bearing, not style. The compose strip was previously
+# `s|^.*/miner-fleet:||` — an unanchored greedy prefix. Once trailing comments
+# became legal input, a comment containing a second `/miner-fleet:X.Y.Z`-shaped
+# token made sed strip through the LAST occurrence rather than the one grep
+# anchored on, so the version was read out of the COMMENT instead of the real
+# pin. That produced a false PASS on genuine drift — the exact failure this
+# check exists to catch — and, in the mirror case, a false BLOCK on a correct
+# release. Comments next to this line are not hypothetical: the compose file's
+# own style writes prose about digests there, and DEPLOY.md's roll-back guidance
+# invites recording the previous tag beside it.
 manifest_version="$(grep -E "$MANIFEST_VERSION_ERE" "$manifest" \
   | sed -E "s/^version:[[:space:]]+//; s/[[:space:]]*#.*$//; s/^['\"]//; s/['\"]$//; s/[[:space:]]*$//")"
-compose_version="$(grep -E "$COMPOSE_IMAGE_ERE" "$compose" | sed -E 's|^.*/miner-fleet:||; s|@sha256:.*$||')"
+compose_version="$(grep -E "$COMPOSE_IMAGE_ERE" "$compose" \
+  | sed -E "s|^[[:space:]]+image:[[:space:]]+${IMAGE_NAME_ERE}:||; s|@sha256:.*$||")"
 
 # Belt-and-braces: the extraction must itself produce a semver. If a future edit
 # to the patterns above lets something else through, this fails rather than
