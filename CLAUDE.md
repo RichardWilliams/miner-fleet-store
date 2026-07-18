@@ -98,12 +98,14 @@ and this section is updated to point at it rather than describing it twice.
 
 Every one of the 40 symlinks under `.claude/` points into `.engine-context/`,
 which is deliberately excluded from version control via `.git/info/exclude`
-(never via the committed `.gitignore` — see the entry in `DECISIONS.md`). On a
-bare clone, or after any disaster-recovery re-checkout, `.engine-context/` does
-not exist and all 40 symlinks dangle. `.claude/settings.json` is itself
-gitignored and is only produced by `sync-settings.sh` / `worktree-new.sh`
-reading `.claude/canonical/hook-registrations.json` — which cannot resolve
-while it too is a dangling symlink. The net effect is silent, not loud: no
+rather than the committed `.gitignore` — this matches the canonical
+managed-repo pattern, where the snapshot is a local materialisation, not a
+tracked artifact. On a bare clone, or after any disaster-recovery
+re-checkout, `.engine-context/` does not exist and all 40 symlinks dangle.
+`.claude/settings.json` is itself gitignored and is only produced by
+`sync-settings.sh` / `worktree-new.sh` reading
+`.claude/canonical/hook-registrations.json` — which cannot resolve while it
+too is a dangling symlink. The net effect is silent, not loud: no
 PreToolUse hook fires, no `scan-write-content.sh`, no
 `scan-diff-banned-tokens.sh`, no privacy scan — nothing errors, the checkout
 simply looks normal while carrying zero enforcement. That is the worst
@@ -126,6 +128,12 @@ reaching for them:
    per-file agent symlinks under `.claude/agents/`.
 4. Hand-create the remainder: `.claude/shared`, `.claude/review-triggers.json`,
    `.claude/canonical/hook-registrations.json`.
+5. Run `sync-settings.sh --repo <worktree>` to generate `.claude/settings.json`
+   from the `hook-registrations.json` created in step 4. Steps 1-4 only
+   produce the *inputs* to the generator — they do not invoke it. Then VERIFY
+   the file actually exists: `ls .claude/settings.json`. Until that file
+   exists, no PreToolUse hook fires — no `scan-write-content.sh`, no
+   `scan-diff-banned-tokens.sh`, no privacy scan.
 
 Two things to know before running any of the above:
 
