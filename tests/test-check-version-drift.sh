@@ -208,9 +208,8 @@ printf 'version: "0.9.9"\n' >> "${root}/${APP_ID}/umbrel-app.yml"
 assert_case 'ambiguous: two version lines fail closed' 1 "$root" 'cannot determine which is authoritative'
 
 # `require_exactly_one` is shared by both sides, so testing it on the manifest
-# alone leaves the compose call site unexercised. The same asymmetry — a guard
-# proven on one side and hand-reasoned on the other — is what let the compose
-# extraction bug survive two rounds.
+# alone left the compose call site unexercised. It failed closed there correctly
+# — but by hand-reasoning, not by test. This makes it mechanical.
 root="$(make_fixture duplicate_compose_image 'version: "0.1.0"' "$GOOD_IMAGE")"
 printf '%s\n' "$GOOD_IMAGE" >> "${root}/${APP_ID}/docker-compose.yml"
 assert_case 'ambiguous: two image lines fail closed' 1 "$root" 'cannot determine which is authoritative'

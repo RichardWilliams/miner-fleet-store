@@ -88,7 +88,7 @@ require_exactly_one() {
     fail "no ${what} found in ${file} — the field is absent or malformed"
   fi
   if (( count > 1 )); then
-    fail "${count} ${what} lines found in ${file} — expected exactly one; cannot determine which is authoritative"
+    fail "${count} ${what}s found in ${file} — expected exactly one; cannot determine which is authoritative"
   fi
 }
 
