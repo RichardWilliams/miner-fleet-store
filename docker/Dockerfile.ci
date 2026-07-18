@@ -1,0 +1,25 @@
+# Thin per-repo CI Dockerfile, derived from the canonical
+# .codespace/docker/node-ci/Dockerfile.ci.template. FROM the digest-pinned
+# shared node-ci base (the single source of the validation toolchain and of the
+# entrypoint that executes .local-ci.yml), then copy the repo.
+#
+# The base is DIGEST-PINNED (@sha256:...) — never a floating tag — so the build
+# is reproducible and local==CI image identity holds. The pin below is the same
+# node-ci version every other managed repo in this estate is on.
+#
+# DELIBERATE DIVERGENCE FROM THE TEMPLATE — do not "restore" the template here.
+# The template's `COPY package.json package-lock.json .npmrc ./`, its `npm ci`
+# layer, and its `--mount=type=secret,id=NODE_AUTH_TOKEN` branch all exist to
+# install Node dependencies, routing private `@richardwilliams/*` packages to
+# GitHub Packages. This repo has NO package.json, NO lockfile, NO .npmrc and no
+# dependencies of any kind — it ships YAML manifests, two shell scripts and
+# documentation. COPYing nonexistent files is a hard build failure, and an npm
+# install layer for a repo with nothing to install is pure machinery. Hence the
+# single COPY below and no install step.
+#
+# What this image IS used for: the base provides bash and the runner that reads
+# .local-ci.yml, which is what the validation steps need. Restore the template's
+# npm shape only if this repo ever gains real Node dependencies.
+FROM ghcr.io/richardwilliams/node-ci:v0.1.3@sha256:5409e3507f25fa391f9b19cb827ffb818808931b166802881f8dc7ee7a22fc92
+WORKDIR /app
+COPY . .

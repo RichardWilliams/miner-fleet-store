@@ -1,0 +1,39 @@
+# .local-ci.yml — miner-fleet-store local-CI step set.
+#
+# This file is the SINGLE canonical source of the repo's validation step set.
+# Both sides execute THIS file:
+#
+#   - Locally: the push gate (.claude/hooks/scan-local-ci-passed.sh, cs#1318 /
+#     cs#1534) builds docker/Dockerfile.ci and runs the resulting node-ci
+#     container over the mounted repo. The container's entrypoint executes these
+#     steps. Exit 0 writes the SHA-pinned marker; anything else blocks the push.
+#   - In CI: the `validate` job in .github/workflows/ci.yml builds the SAME
+#     Dockerfile.ci and runs the SAME image the SAME way.
+#
+# So local == CI by construction (cs#1527/cs#1533/cs#1534). The step set is NOT
+# duplicated in the workflow — the workflow builds and runs the image, and the
+# image reads this file. Adding a step here adds it to both sides at once.
+#
+# Before this file existed the repo had NO local validation at all: cs#1549
+# skips the local-CI gate for any repo without docker/Dockerfile.ci, so a
+# CI-only check would have run in CI and never before a push — exactly the
+# divergence INVARIANTS.md § Local CI Equivalence exists to prevent.
+#
+# This repo ships YAML manifests and shell, not an application: there is no
+# lint, type-check, or build step to run. The two steps below are its full
+# validation surface.
+
+steps:
+  # The store-side half of the version-drift chain. miner-fleet's
+  # release-image.yml already fails a release on git-tag vs package.json drift
+  # (miner-fleet's DECISIONS.md entry 6); this catches manifest vs compose drift,
+  # which would otherwise let Umbrel display one version while running another.
+  - name: version-drift
+    run: bash scripts/check-version-drift.sh
+    timeout: 60
+
+  # The drift check's own tests. A gate nobody tests is a gate nobody can trust
+  # to still work after the next edit.
+  - name: test-version-drift
+    run: bash tests/test-check-version-drift.sh
+    timeout: 120
