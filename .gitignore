@@ -11,6 +11,9 @@ Thumbs.db
 *.key
 *.p12
 *.pfx
+# Default OpenSSH/PuTTY key filenames only — a custom-named private key is
+# NOT caught by any pattern below. This list is not exhaustive; never place
+# key material of any name in this repo.
 id_rsa
 id_rsa.*
 id_ecdsa

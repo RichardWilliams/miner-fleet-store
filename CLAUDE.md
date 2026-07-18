@@ -112,44 +112,60 @@ simply looks normal while carrying zero enforcement. That is the worst
 possible failure mode for a repo whose headline constraint is "world-readable,
 never leak a LAN IP / hostname / MAC / credential, permanently."
 
-The order below is known to work. It was worked out live, the hard way, during
-this repo's own bootstrap — running the scripts out of order looks like the
-scripts are broken rather than like an ordering problem, so read this before
-reaching for them:
+**This is disaster recovery on an already-managed repo, not virgin bootstrap.**
+All 40 `.claude/` symlinks — including `.claude/hooks`, `.claude/shared`,
+`.claude/review-triggers.json`, and `.claude/canonical/hook-registrations.json`
+— are tracked in git (`git ls-tree HEAD` shows mode `120000`) and reappear on
+any clone or checkout automatically. They will be present but DANGLING until
+`.engine-context/` is materialised. Do not try to (re-)create any of them —
+`ln -s` on a path that already exists fails with `File exists`, and creating
+them is unnecessary: git already restored them.
 
-1. Create the `.claude/hooks` symlink **first**, targeting
-   `../.engine-context/codespace/.claude/hooks`. This symlink is the
-   managed-repo marker every other script below detects; nothing else works
-   until it exists.
-2. Run `realign-engine-context.sh <worktree> <codespace>`. This materialises
-   the `.engine-context/` snapshot and writes the `.engine-context/` line into
-   `.git/info/exclude`.
-3. Run `migrate-agents-to-symlinks.sh --repo <worktree>`. This creates the 36
-   per-file agent symlinks under `.claude/agents/`.
-4. Hand-create the remainder: `.claude/shared`, `.claude/review-triggers.json`,
-   `.claude/canonical/hook-registrations.json`.
-5. Run `sync-settings.sh --repo <worktree>` to generate `.claude/settings.json`
-   from the `hook-registrations.json` created in step 4. Steps 1-4 only
-   produce the *inputs* to the generator — they do not invoke it. Then VERIFY
-   the file actually exists: `ls .claude/settings.json`. Until that file
-   exists, no PreToolUse hook fires — no `scan-write-content.sh`, no
+The real recovery sequence is two steps:
+
+1. Run `realign-engine-context.sh <worktree> <codespace>`. This materialises
+   the `.engine-context/` snapshot that every tracked symlink points into, and
+   writes the `.engine-context/` line into `.git/info/exclude`. It detects
+   this repo as managed via the already-present `.claude/hooks` /
+   `.claude/agents` symlinks — a dangling symlink still satisfies that
+   detection (`-L` is true regardless of whether the target resolves), so this
+   step runs correctly with no prior symlink-creation step.
+2. Run `sync-settings.sh --repo <worktree>` to generate `.claude/settings.json`
+   from the now-resolvable `.claude/canonical/hook-registrations.json` and the
+   repo's tracked `.claude/settings.local-additions.json`. Then VERIFY the
+   result actually registers hooks, not merely that the file exists — a
+   generated file with an empty `hooks` array satisfies `ls` while enforcing
+   nothing:
+
+   ```
+   jq -e '(.hooks | length) > 0' .claude/settings.json
+   ```
+
+   Exit 0 with a truthy count means hooks are registered. Until this passes,
+   no PreToolUse hook fires — no `scan-write-content.sh`, no
    `scan-diff-banned-tokens.sh`, no privacy scan.
 
-Two things to know before running any of the above:
+**Applies to bootstrapping a brand-new managed repo, NOT to recovery on this
+one — keep separate:** `realign-engine-context.sh` and `bootstrap-codespace.sh`
+are silent no-ops on a repo that has no `.claude/agents` or `.claude/hooks`
+symlink yet at all (the virgin case this repo itself went through once,
+before its first commit). `bootstrap-codespace.sh` prints a success message
+unconditionally, even when the underlying realign step no-oped, so its output
+must never be trusted as evidence the snapshot materialised — verify directly
+by checking that `.engine-context/codespace/` actually exists. This trap does
+NOT apply to recovery on this repo, because this repo's symlinks are tracked
+and therefore already present (dangling, not absent); it is listed here only
+so the two procedures are not confused.
 
-- **Both `realign-engine-context.sh` and `bootstrap-codespace.sh` are silent
-  no-ops on a repo that has no `.claude/agents` or `.claude/hooks` symlink
-  yet** — they use those symlinks as the managed-repo marker, exactly as in
-  step 1 above. `bootstrap-codespace.sh` prints a success message
-  unconditionally, even when the underlying realign step no-oped, so its
-  output must never be trusted as evidence the snapshot materialised. Verify
-  directly by checking that `.engine-context/codespace/` actually exists.
-- **Do not run `migrate-shared-symlinks.sh` for this repo.** It is
-  workspace-wide and has no `--repo` flag; invoking it here would operate
-  across every managed repo, not just this one.
+**Do not run `migrate-shared-symlinks.sh` for this repo.** It is
+workspace-wide and has no `--repo` flag; invoking it here would operate across
+every managed repo, not just this one. The per-file agent symlinks under
+`.claude/agents/` are tracked too, so `migrate-agents-to-symlinks.sh` is
+likewise unnecessary for recovery — git checkout already restored them.
 
-Until `.engine-context/` is materialised, the entire `.claude/` hook estate is
-inert and this repo's privacy protections described above are **not**
+Until `.engine-context/` is materialised AND `.claude/settings.json` is
+regenerated with a non-empty `hooks` entry, the entire `.claude/` hook estate
+is inert and this repo's privacy protections described above are **not**
 enforced. That matters more here than in any sibling repo: this repo is
 permanently public, so a leak that a hook would have caught elsewhere is
 unrecoverable the moment it is pushed.
