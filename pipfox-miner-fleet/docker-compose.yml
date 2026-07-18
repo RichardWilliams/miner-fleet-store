@@ -1,0 +1,30 @@
+services:
+  # Umbrel injects this reverse-proxy/auth service. APP_HOST resolves the
+  # application container by its compose-generated name, so the service below
+  # MUST be named `server` — the `_server_1` suffix is a hard naming contract,
+  # not a convention (DECISIONS.md entry 1).
+  app_proxy:
+    environment:
+      APP_HOST: pipfox-miner-fleet_server_1
+      # Container-internal listen port, not the host-facing one. The app's
+      # Dockerfile sets ENV PORT=3000 and EXPOSE 3000; the host-facing port the
+      # operator reaches is `port: 3007` in umbrel-app.yml.
+      APP_PORT: 3000
+
+  server:
+    # Pinned by semver tag AND sha256 digest together (DECISIONS.md entry 3).
+    # The digest is the multi-arch INDEX digest published by miner-fleet's
+    # release-image.yml — not the inner per-platform manifest digest — because
+    # umbreld resolves the index. Bump both halves together on every release;
+    # DEPLOY.md names this line as one of the two edit sites.
+    image: ghcr.io/richardwilliams/miner-fleet:0.1.0@sha256:da0e81a0f568255bd6dac6f12274c9aec88661bba9a49057cfb57b5974e74c01
+    restart: on-failure
+    stop_grace_period: 1m
+    # Bridge networking, NOT network_mode: host (DECISIONS.md entry 2). A bridge
+    # container already reaches arbitrary LAN addresses outbound, which is what
+    # sweeping the miners' HTTP API needs; host networking would additionally
+    # cost the app_proxy auth layer in front of the app.
+    #
+    # No volumes. The application is stateless at this version — it has no
+    # database and writes nothing it needs to survive a restart. Storage is
+    # declared by the change that introduces it, alongside the code that uses it.

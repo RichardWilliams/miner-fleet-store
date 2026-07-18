@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Miner Fleet">
+  <title>Miner Fleet</title>
+  <defs>
+    <linearGradient id="mfGround" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#2B2730"/>
+      <stop offset="1" stop-color="#151418"/>
+    </linearGradient>
+    <linearGradient id="mfSteel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFC46B"/>
+      <stop offset="0.45" stop-color="#F7931A"/>
+      <stop offset="1" stop-color="#B45F09"/>
+    </linearGradient>
+    <linearGradient id="mfWood" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#C9A87C"/>
+      <stop offset="0.5" stop-color="#EFDDBE"/>
+      <stop offset="1" stop-color="#B08E62"/>
+    </linearGradient>
+    <radialGradient id="mfGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#F7931A" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#F7931A" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="0" y="0" width="512" height="512" rx="112" fill="url(#mfGround)"/>
+  <circle cx="256" cy="242" r="186" fill="url(#mfGlow)"/>
+
+  <g transform="translate(256 242) scale(0.76)">
+    <g transform="rotate(33)">
+      <rect x="-12" y="-150" width="24" height="312" rx="12" fill="url(#mfWood)"/>
+      <path d="M -118 -138 Q -55 -186 0 -179 Q 55 -186 118 -138 Q 55 -157 0 -150 Q -55 -157 -118 -138 Z" fill="url(#mfSteel)"/>
+      <circle cx="0" cy="-150" r="17" fill="#6E4A22"/>
+    </g>
+    <g transform="rotate(-33)">
+      <rect x="-12" y="-150" width="24" height="312" rx="12" fill="url(#mfWood)"/>
+      <path d="M -118 -138 Q -55 -186 0 -179 Q 55 -186 118 -138 Q 55 -157 0 -150 Q -55 -157 -118 -138 Z" fill="url(#mfSteel)"/>
+      <circle cx="0" cy="-150" r="17" fill="#6E4A22"/>
+    </g>
+  </g>
+
+  <g fill="#F7931A">
+    <circle cx="196" cy="434" r="15"/>
+    <circle cx="256" cy="434" r="15"/>
+    <circle cx="316" cy="434" r="15"/>
+  </g>
+</svg>

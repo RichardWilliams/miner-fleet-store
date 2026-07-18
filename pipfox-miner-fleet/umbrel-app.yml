@@ -1,0 +1,51 @@
+manifestVersion: 1
+id: pipfox-miner-fleet
+name: Miner Fleet
+tagline: Manage your Bitaxe and NerdQAxe++ miners from one dashboard
+category: bitcoin
+version: "0.1.0"
+port: 3007
+description: >-
+  Miner Fleet is a self-hosted manager for open-source Bitcoin ASIC miners
+  running AxeOS — Bitaxe and NerdQAxe++ boards.
+
+
+  It finds the miners on your network, collects their telemetry, and presents
+  hashrate, temperature, power and share statistics in one place, so you can see
+  the state of every board without opening a browser tab per device.
+
+
+  Firmware rollout is handled as a supervised operation rather than a
+  fire-and-forget broadcast. Boards are grouped by model, updates are applied in
+  sequence behind a health check, and each group is validated before the next
+  begins — because AxeOS builds for different boards are not interchangeable and
+  flashing the wrong binary bricks the device.
+
+
+  This release is an early one: it ships the service, its health endpoint and its
+  packaging. Discovery, telemetry and rollout arrive in subsequent releases.
+releaseNotes: >-
+  First packaged release.
+
+
+  This version establishes the app itself — the container, its health endpoint
+  and the Umbrel integration. It is intended for installing and confirming the
+  app runs on your machine; fleet functionality is not in this release.
+developer: Pipfox
+submitter: Pipfox
+website: https://github.com/RichardWilliams/miner-fleet-store
+repo: https://github.com/RichardWilliams/miner-fleet-store
+support: https://github.com/RichardWilliams/miner-fleet-store/issues
+# Self-hosted in this repo rather than on a third-party image host, so the asset
+# is versioned alongside the manifest that references it and no external host
+# sits in the dashboard's render path. The repo is public, so the raw URL
+# resolves unauthenticated — the same property umbreld already relies on to
+# clone the store.
+icon: https://raw.githubusercontent.com/RichardWilliams/miner-fleet-store/main/pipfox-miner-fleet/icon.svg
+# Gallery entries are hosted image URLs on the same basis as `icon` — committed
+# here and referenced by raw URL, never auto-discovered from the directory.
+# Empty because no screenshots exist yet: the app is a health endpoint and one
+# page, and inventing placeholder art for a public store listing is worse than
+# showing none.
+gallery: []
+path: "/"

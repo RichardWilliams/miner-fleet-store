@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    # Validation runs INSIDE the digest-pinned ghcr.io/richardwilliams/node-ci
+    # image, so local == CI by construction for the toolchain layer
+    # (cs#1527/cs#1533/cs#1534). The step SET is NOT maintained here: it lives
+    # in `.local-ci.yml` at the repo root — the single canonical source the
+    # node-ci entrypoint executes over the mounted repo. The local push gate
+    # (`.claude/hooks/scan-local-ci-passed.sh`) builds + runs the SAME image
+    # with the SAME steps.
+    #
+    # `packages: read` + the ghcr login are required to PULL the node-ci base:
+    # the node-ci package is private, so an unauthenticated manifest fetch
+    # returns 403. This repo additionally needs read access GRANTED to that
+    # package in its settings — a one-time manual step, without which this job
+    # fails in ~14s before any validation runs. See
+    # .codespace/docs/post-mortems/github-packages-ci-403.md; diagnose by
+    # token-context first, never by republishing the package.
+    #
+    # No `secrets: NODE_AUTH_TOKEN=` is passed to the image build: this repo has
+    # no dependencies at all, so the build contacts no npm registry.
+    #
+    # No `-v /app/node_modules` anonymous volume either — that masks a host
+    # node_modules so the image's correct-arch native deps win, and this repo
+    # has no node_modules to mask.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/ghcr-docker-setup
+
+      - name: Build the node-ci validation image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile.ci
+          load: true
+          tags: ci:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run validation in the node-ci container
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "${{ github.workspace }}:/app" \
+            ci:${{ github.sha }}
