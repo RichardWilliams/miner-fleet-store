@@ -13,14 +13,15 @@ your terminal, never in a commit, a manifest comment, or a PR description.
 
 Done once per Umbrel box. After this, releases reach the box without touching it.
 
-**Mandatory operator checklist — the deploy is not live until all four pass.**
+**Mandatory operator checklist — the deploy is not live until all five pass.**
 
+- [ ] Confirm your Docker Compose is v2.24 (Jan 2024) or newer: `docker compose version`. This app's config file uses the long-form `env_file … required: false` syntax, which older Compose cannot parse — on an older Compose the app fails to INSTALL with a compose parse error (see § 4). Current umbrelOS ships well past this.
 - [ ] In the Umbrel UI, open the App Store, then the **⋯** menu → **Community App Stores**.
 - [ ] Add this repository's URL: `https://github.com/RichardWilliams/miner-fleet-store`. It should be accepted without a credential prompt — the repo is public and umbreld clones it anonymously. A credential prompt means the repo visibility has regressed; stop and fix that first.
 - [ ] Install **Miner Fleet** from the Pipfox store that now appears.
 - [ ] Open the app and confirm its UI loads. It is served through `app_proxy` on host port **3007** — the port declared in `umbrel-app.yml`, not the container's internal 3000.
 
-If the app installs but the UI does not load, go to § 4 Recovery.
+If the app installs but the UI does not load, go to § 4 Recovery. (Setting the subnet so the fleet actually populates is a separate one-time step — see § 6.)
 
 ### Prerequisite: the image must be public
 
@@ -107,6 +108,13 @@ docker buildx imagetools inspect ghcr.io/richardwilliams/miner-fleet:X.Y.Z@sha25
 
 If that fails, the reference is wrong. Correct it here and merge; the box picks
 up the fix on the next poll.
+
+**The app fails to install/start with a compose or YAML parse error** (a message
+about `env_file`, an unexpected mapping, or the `required` key). Your Docker
+Compose is older than v2.24 and cannot parse the long-form `env_file … required:
+false` this app uses. Update umbrelOS (which bundles a current Compose) and retry;
+confirm with `docker compose version` (§ 1). This is a hard, loud failure — it is
+not the "app runs but the fleet is empty" case (that one is § 6).
 
 **The pull fails with 401.** The published package has gone private. Flip it back
 to public in the GitHub package settings; no store change is needed.
@@ -209,16 +217,19 @@ enforces the manifest-vs-compose-tag half at push time.
 ## 6. Set your subnet on the box (one-time, required for a populated fleet)
 
 **Do this once after installing or first-updating to `0.2.0`.** Until it is done
-the dashboard loads but the fleet is EMPTY — and it fails QUIETLY: with no subnet
-set, discovery does not sit idle, it derives a range from the container's OWN
-address and sweeps that. On Umbrel that address is the app's Docker bridge network,
-not your LAN, so the sweep finds nothing and the only trace is a line in the app's
-container log — `/api/health` still returns OK and the dashboard's empty state
-looks identical to a real empty LAN. Setting the subnet is what points it at the
-right network. The value is read from a file **you create on the Umbrel**; it is
-never committed to this public repo (entry 7), and because the file lives in the
-app's data volume it **survives every future app update** (only an uninstall
-clears it).
+the dashboard loads but the fleet is EMPTY — and it fails SILENTLY, with no signal
+at all: with no subnet set, discovery does not sit idle, it derives a range from
+the container's OWN address and sweeps that. On Umbrel that address is the app's
+Docker bridge network, not your LAN, so the sweep succeeds, finds nothing, and logs
+nothing — the app logs discovery only on an actual error (no usable address at all,
+a malformed range), not on a successful sweep that happened to find zero miners.
+`/api/health` still returns OK and the dashboard's empty state is identical to a
+real empty LAN, so `docker logs` will NOT show you the cause — the only way to tell
+"wrong subnet" from "genuinely empty LAN" is the checks below. Setting the subnet is
+what points it at the right network. The value is read from a file **you create on
+the Umbrel**; it is never committed to this public repo (entry 7), and because the
+file lives in the app's data volume it **survives every future app update** (only an
+uninstall clears it).
 
 The value belongs only on your box — do not paste your real range into a commit,
 a PR, or an issue.

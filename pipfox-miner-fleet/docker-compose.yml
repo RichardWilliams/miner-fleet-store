@@ -58,12 +58,13 @@ services:
     # inventory + telemetry samples under its container-side data dir, default
     # /data (miner-fleet src/config/runtimeConfig.ts, MINER_FLEET_DATA_DIR).
     # ${APP_DATA_DIR} is the HOST-side app-data directory umbreld exports into the
-    # compose environment (getumbrel/umbrel legacy-compat/app-script:263 exports
-    # APP_DATA_DIR, value built :195 as ${UMBREL_ROOT}/app-data/${app}); the
-    # shipped-app precedent is vaultwarden's ${APP_DATA_DIR}/data:/data. This
-    # directory SURVIVES app updates and is removed only on UNINSTALL
-    # (getumbrel/umbrel app.ts — the update path never removes it; uninstall does
-    # via fse.remove(this.dataDirectory)). The image runs as uid/gid 1000:1000 and
+    # compose environment; the ${UMBREL_ROOT}/app-data/${app} contract is cited in
+    # the sibling miner-fleet repo (its DECISIONS entry 12 / runtimeConfig.ts) —
+    # referenced rather than re-pinned here because the upstream line numbers drift.
+    # The shipped-app precedent is vaultwarden's ${APP_DATA_DIR}/data:/data. This
+    # directory SURVIVES app updates and is removed only on UNINSTALL (umbreld's
+    # update copies the app files over a whitelist that never includes data/;
+    # uninstall removes the data dir). See DECISIONS.md entry 6. The image runs as uid/gid 1000:1000 and
     # umbreld owns the bind-mount source 1000:1000, so the container writes here
     # under cap_drop: ALL + no-new-privileges with no root chown.
     volumes:
