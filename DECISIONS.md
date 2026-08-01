@@ -161,3 +161,85 @@ in kind: it defends against a compromised registry credential with no git access
 **Revisit if.** Umbrel supports a directory-relative icon path, or this repo
 takes external contributors — at which point `main` is no longer operator-only
 and the trade-off changes shape.
+
+---
+
+## 6. Persistent state is a `${APP_DATA_DIR}/data:/data` bind mount, declared with the release that writes to it
+
+**Statement.** The `server` service mounts `${APP_DATA_DIR}/data` onto the
+container's `/data` — the app's default `MINER_FLEET_DATA_DIR`. The mount is
+declared in the SAME store release that pins the first image which writes to
+disk (miner-fleet `0.2.0`), never before and never after it.
+
+**Why.** miner-fleet `0.2.0` persists its discovered inventory and telemetry
+samples to a SQLite database under its data directory; without a declared volume
+umbreld replaces the container on every version bump and that state is destroyed,
+with the symptom (inventory empties after an update) sitting far from the cause
+(no volume). `${APP_DATA_DIR}/data:/data` is the documented, shipped Umbrel
+pattern — `${APP_DATA_DIR}` is the host-side app-data directory umbreld exports
+into the compose environment (`getumbrel/umbrel` legacy-compat/app-script:263
+exports it, value built :195 as `${UMBREL_ROOT}/app-data/${app}`), and the
+directory **survives updates and is removed only on uninstall**
+(`getumbrel/umbrel` app.ts: the update path never removes the data dir; uninstall
+does via `fse.remove(this.dataDirectory)`). The shipped precedent is
+vaultwarden's `${APP_DATA_DIR}/data:/data`. The image runs as uid/gid `1000:1000`
+(miner-fleet `docker/Dockerfile`, DECISIONS entry 12 in that repo) and umbreld
+owns the bind-mount source `1000:1000`, so the container writes under
+`cap_drop: ALL` + `no-new-privileges:true` with no root chown — the hardening
+does not need relaxing, and MUST NOT be relaxed to make the volume writable.
+
+The ORDERING is the load-bearing half: the volume and the disk-writing image ship
+together. Volume-first (before the writing image) declares storage nothing uses;
+image-first (before the volume) resets the operator's data on every update until
+the volume lands. So both move in one release.
+
+**Revisit if.** umbrelOS changes where app-data lives or how it is preserved
+across updates (verify against its source, not by observing a deployment), or the
+app's container-side data directory moves off `/data`.
+
+---
+
+## 7. Operator runtime configuration is read from a data-volume env file the operator creates, never committed here
+
+**Statement.** Per-install runtime configuration whose value is environment- or
+operator-specific — first and foremost `MINER_FLEET_SUBNETS`, the LAN range(s) to
+sweep — is delivered to the container via
+`env_file: [{ path: ${APP_DATA_DIR}/data/config.env, required: false }]` on the
+`server` service. The file is created BY THE OPERATOR on the box, inside the
+persistent data volume. This repo commits the `env_file` REFERENCE only; it never
+commits a real subnet, IP, hostname, MAC, or any other environment-specific value.
+
+**Why.** This repo is PUBLIC and umbreld clones it unauthenticated, so a real LAN
+range in any committed file is a codespace RULE #1 leak. The value must therefore
+come from the box — and it must SURVIVE app updates, or the operator re-enters it
+every release. Three facts force this exact shape:
+
+- The app reads `MINER_FLEET_SUBNETS` from its process environment
+  (miner-fleet `src/config/runtimeConfig.ts`), and when it is unset auto-derives
+  the range from the container's own address — which on Umbrel is the docker
+  app-network, not the operator's LAN, so the fleet is empty until it is set.
+- umbreld passes a community-app compose NO `--env-file` and exports no custom
+  vars (`getumbrel/umbrel` legacy-compat/app-script — the `docker compose`
+  invocation carries no `--env-file`; only `APP_DATA_DIR`/`APP_ID`-class vars are
+  exported). So a value reaches the container only as a literal in this compose
+  or via an `env_file` this compose names.
+- A literal here either commits the range (RULE #1) or is wiped on every update,
+  because umbreld replaces this compose file on update while preserving the data
+  directory (entry 6).
+
+`env_file` pointing INTO the data volume satisfies all three: `${APP_DATA_DIR}` is
+interpolated by compose from umbreld's exported environment, the file lives in the
+update-surviving data dir, and nothing real is committed. `required: false` lets a
+fresh install with no file yet start cleanly (empty fleet) rather than failing on
+a missing env file; it needs Docker Compose v2.24+ (the long-form `env_file`
+entry), which current umbrelOS ships. This SUPERSEDES the configuration-surface
+approach originally scoped in `#5`'s issue body (an in-app settings UI persisted
+to the volume): the shipped `0.2.0` image has no such UI and reads configuration
+only from the environment, so the env-file mechanism is what actually works
+against the image being released.
+
+**Revisit if.** miner-fleet gains an in-app settings surface that persists
+configuration to the data volume and reads it at runtime (at which point the
+subnet moves there and this entry is reconsidered), or umbrelOS gains a native
+per-app settings mechanism that survives updates, or umbreld begins passing a
+persistent `--env-file` to community-app compose.

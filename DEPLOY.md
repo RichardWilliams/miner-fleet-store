@@ -179,12 +179,79 @@ commit SHA does not exist when the icon is authored, and squash-merge destroys
 the branch SHA. Do not "fix" it to look consistent with the image pin — the two
 defend against different things.
 
-**No volumes.** The application is stateless at this version — no database, and
-nothing it writes needs to survive a restart. Declaring storage the app never
-touches would be configuration added in case it is needed later. When the app
-gains persistent state, the mounts land with the code that uses them. Record for
-that change: the container runs as **uid 1001** (`minerfleet`, gid 1001
-`nodejs`), so any host directory bind-mounted into it must be writable by 1001 —
-not 1000. That change is also the point at which to verify against umbreld's
-source whether `APP_DATA_DIR` is re-seeded on *update* or only on *install*; that
-question is currently unanswered and should not be assumed either way.
+**Persistent data volume** (entry 6). From `0.2.0` the app persists its miner
+inventory and telemetry to a SQLite database under `/data`, bind-mounted from
+`${APP_DATA_DIR}/data`. That directory **survives app updates and is cleared only
+on uninstall** (verified against `getumbrel/umbrel` app.ts: the update path never
+removes the data dir; uninstall does). The image runs as **uid 1000** (the
+node:alpine `node` account), matching umbreld's `1000:1000` app-data ownership, so
+the container writes there under `cap_drop: ALL` + `no-new-privileges:true` with
+no root chown — do NOT relax the hardening to "fix" a write permission; a
+permission failure means the uid or the mount source ownership is wrong, not that
+the hardening is. (The earlier bootstrap note citing uid 1001 predated the shipped
+runtime; the image was changed to 1000 precisely so this mount is writable.)
+
+**Operator config lives on the box, never in this repo** (entry 7). The subnet to
+sweep is read from `${APP_DATA_DIR}/data/config.env`, a file the operator creates
+on the Umbrel — see § 6. This repo commits only the `env_file` reference; a real
+LAN range in a committed file is a RULE #1 leak. The `env_file` path is inside the
+data volume, so the setting survives updates alongside the database.
+
+**The volume and the disk-writing image ship in the SAME release** (entry 6). A
+release moves `umbrel-app.yml`'s `version`, the compose `image:` tag **and**
+`@sha256:` index digest, AND (the first time) the volume declaration, together.
+Shipping the volume before the writing image declares unused storage; shipping the
+image before the volume resets data on every update. `scripts/check-version-drift.sh`
+enforces the manifest-vs-compose-tag half at push time.
+
+---
+
+## 6. Set your subnet on the box (one-time, required for a populated fleet)
+
+**Do this once after installing or first-updating to `0.2.0`.** Until it is done
+the dashboard loads but the fleet is EMPTY — discovery cannot guess your LAN from
+inside Umbrel's Docker network, so you tell it the range to sweep. The value is
+read from a file **you create on the Umbrel**; it is never committed to this
+public repo (entry 7), and because the file lives in the app's data volume it
+**survives every future app update** (only an uninstall clears it).
+
+The value belongs only on your box — do not paste your real range into a commit,
+a PR, or an issue.
+
+1. Open a shell on your Umbrel (SSH, or the Terminal app).
+2. Write your real LAN range into the app's data-volume config file (replace the
+   example range with yours; the directory already exists after the app's first
+   run):
+
+   ```bash
+   echo 'MINER_FLEET_SUBNETS=192.168.1.0/24' \
+     > ~/umbrel/app-data/pipfox-miner-fleet/data/config.env
+   ```
+
+   You can list more than one range comma-separated
+   (`MINER_FLEET_SUBNETS=192.168.1.0/24,192.168.2.0/24`). The path
+   `~/umbrel/app-data/pipfox-miner-fleet/data/` is the host side of the container's
+   `/data` mount. If `~/umbrel` is not your install location, substitute your
+   Umbrel root — `$UMBREL_ROOT/app-data/pipfox-miner-fleet/data/` — wherever that
+   points on your host.
+3. Restart the app from the Umbrel UI (or `Stop` then `Start`). On restart, Docker
+   Compose reads `config.env` and the sweep begins; the dashboard populates within
+   a poll interval (~30 s).
+
+**If the fleet is still empty:** confirm the file path and that the range matches
+the subnet your miners are actually on (check a miner's IP in your router). The
+container reaches LAN addresses outbound over the bridge network, so no host
+networking is needed — only the correct range. `config.env` accepts any of the
+app's `MINER_FLEET_*` tunables (poll interval, timeouts); `MINER_FLEET_SUBNETS` is
+the only one you must set.
+
+**Optional confirmation** that Compose is reading the file (does not print your
+range anywhere public):
+
+```bash
+docker inspect pipfox-miner-fleet_server_1 \
+  --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -c '^MINER_FLEET_SUBNETS='
+```
+
+`1` means the value reached the container; `0` means `config.env` is missing,
+mis-pathed, or the app was not restarted after it was created.
