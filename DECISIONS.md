@@ -168,7 +168,7 @@ and the trade-off changes shape.
 
 **Statement.** The `server` service mounts `${APP_DATA_DIR}/data` onto the
 container's `/data` — the app's default `MINER_FLEET_DATA_DIR`. The mount is
-declared in the SAME store release that pins the first image which writes to
+declared in the same store release that pins the first image which writes to
 disk (miner-fleet `0.2.0`), never before and never after it.
 
 **Why.** miner-fleet `0.2.0` persists its discovered inventory and telemetry
@@ -177,16 +177,24 @@ umbreld replaces the container on every version bump and that state is destroyed
 with the symptom (inventory empties after an update) sitting far from the cause
 (no volume). `${APP_DATA_DIR}/data:/data` is the documented, shipped Umbrel
 pattern — `${APP_DATA_DIR}` is the host-side app-data directory umbreld exports
-into the compose environment (`getumbrel/umbrel` legacy-compat/app-script:263
-exports it, value built :195 as `${UMBREL_ROOT}/app-data/${app}`), and the
-directory **survives updates and is removed only on uninstall**
-(`getumbrel/umbrel` app.ts: the update path never removes the data dir; uninstall
-does via `fse.remove(this.dataDirectory)`). The shipped precedent is
-vaultwarden's `${APP_DATA_DIR}/data:/data`. The image runs as uid/gid `1000:1000`
-(miner-fleet `docker/Dockerfile`, DECISIONS entry 12 in that repo) and umbreld
-owns the bind-mount source `1000:1000`, so the container writes under
-`cap_drop: ALL` + `no-new-privileges:true` with no root chown — the hardening
-does not need relaxing, and MUST NOT be relaxed to make the volume writable.
+into the compose environment. That contract — the `export APP_DATA_DIR`, its
+`${UMBREL_ROOT}/app-data/${app}` value, and the `MINER_FLEET_DATA_DIR` = `/data`
+default it feeds — is established and cited in the SIBLING repo (miner-fleet
+`DECISIONS.md` entry 12 and `src/config/runtimeConfig.ts`), which owns it. This
+store relies on that citation rather than re-deriving a second set of upstream
+`file:line`s: those line numbers drift with every upstream commit (the
+`legacy-compat/app-script` export/build lines have already moved across umbreld
+releases), so pinning them here only creates a third copy to rot. The directory
+**survives app updates and is removed only on uninstall**: umbreld's update copies
+the app files (including this `docker-compose.yml`, so a new `volumes:` / `env_file:`
+lands) over an explicit whitelist that never includes the `data/` subdirectory, and
+uninstall removes the whole data directory via `app.ts`'s
+`fse.remove(this.dataDirectory)`. The shipped precedent is vaultwarden's
+`${APP_DATA_DIR}/data:/data` with `user: "1000:1000"`. The image runs as uid/gid
+`1000:1000` (miner-fleet's `docker/Dockerfile` and its `DECISIONS.md` entry 12) and
+umbreld owns the bind-mount source `1000:1000`, so the container writes under
+`cap_drop: ALL` + `no-new-privileges:true` with no root chown — the hardening does
+not need relaxing, and must not be relaxed to make the volume writable.
 
 The ORDERING is the load-bearing half: the volume and the disk-writing image ship
 together. Volume-first (before the writing image) declares storage nothing uses;
@@ -231,12 +239,25 @@ every release. Three facts force this exact shape:
 interpolated by compose from umbreld's exported environment, the file lives in the
 update-surviving data dir, and nothing real is committed. `required: false` lets a
 fresh install with no file yet start cleanly (empty fleet) rather than failing on
-a missing env file; it needs Docker Compose v2.24+ (the long-form `env_file`
-entry), which current umbrelOS ships. This SUPERSEDES the configuration-surface
-approach originally scoped in `#5`'s issue body (an in-app settings UI persisted
-to the volume): the shipped `0.2.0` image has no such UI and reads configuration
-only from the environment, so the env-file mechanism is what actually works
-against the image being released.
+a missing env file.
+
+The long-form `env_file` entry carrying a `required:` key is a Docker Compose
+Specification feature added in **Docker Compose v2.24.0 (2024-01)**. This is a hard
+REQUIREMENT of the mechanism, not a nicety: an older Compose rejects the syntax and
+the container fails to start on every install and update — strictly worse than the
+"empty fleet until configured" state `required: false` exists to avoid. It is
+stated here as a checkable requirement, NOT an assumption about what umbrelOS
+bundles: current umbrelOS (1.x) ships a Docker Compose well past 2.24, and
+DEPLOY.md § 6 has the operator confirm `docker compose version` ≥ 2.24 on their own
+box before relying on it (the failure, if their Compose is older, is a loud
+install-time parse error, not a silent empty fleet). No shipped `getumbrel/umbrel-apps`
+app was found using this long-form syntax, so the version floor is asserted from
+the Compose changelog, not from an in-ecosystem precedent.
+
+This supersedes the configuration-surface approach originally scoped in `#5`'s
+issue body (an in-app settings UI persisted to the volume): the shipped `0.2.0`
+image has no such UI and reads configuration only from the environment, so the
+env-file mechanism is what actually works against the image being released.
 
 **Revisit if.** miner-fleet gains an in-app settings surface that persists
 configuration to the data volume and reads it at runtime (at which point the

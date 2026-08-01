@@ -30,7 +30,8 @@ services:
     # unavailable rather than merely unused. Neither affects outbound TCP/HTTP,
     # which is all the app needs. uid 1000 also matches umbreld's 1000:1000
     # app-data ownership, which is what lets the volume below be writable with
-    # cap_drop: ALL and no chown (miner-fleet docker/Dockerfile / DECISIONS 12).
+    # cap_drop: ALL and no chown (see miner-fleet's docker/Dockerfile and its own
+    # DECISIONS.md entry 12 — the sibling repo, not this store's DECISIONS.md).
     security_opt:
       - no-new-privileges:true
     cap_drop:

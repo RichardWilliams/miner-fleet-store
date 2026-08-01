@@ -197,7 +197,7 @@ on the Umbrel — see § 6. This repo commits only the `env_file` reference; a r
 LAN range in a committed file is a RULE #1 leak. The `env_file` path is inside the
 data volume, so the setting survives updates alongside the database.
 
-**The volume and the disk-writing image ship in the SAME release** (entry 6). A
+**The volume and the disk-writing image ship in the same release** (entry 6). A
 release moves `umbrel-app.yml`'s `version`, the compose `image:` tag **and**
 `@sha256:` index digest, AND (the first time) the volume declaration, together.
 Shipping the volume before the writing image declares unused storage; shipping the
@@ -209,17 +209,32 @@ enforces the manifest-vs-compose-tag half at push time.
 ## 6. Set your subnet on the box (one-time, required for a populated fleet)
 
 **Do this once after installing or first-updating to `0.2.0`.** Until it is done
-the dashboard loads but the fleet is EMPTY — discovery cannot guess your LAN from
-inside Umbrel's Docker network, so you tell it the range to sweep. The value is
-read from a file **you create on the Umbrel**; it is never committed to this
-public repo (entry 7), and because the file lives in the app's data volume it
-**survives every future app update** (only an uninstall clears it).
+the dashboard loads but the fleet is EMPTY — and it fails QUIETLY: with no subnet
+set, discovery does not sit idle, it derives a range from the container's OWN
+address and sweeps that. On Umbrel that address is the app's Docker bridge network,
+not your LAN, so the sweep finds nothing and the only trace is a line in the app's
+container log — `/api/health` still returns OK and the dashboard's empty state
+looks identical to a real empty LAN. Setting the subnet is what points it at the
+right network. The value is read from a file **you create on the Umbrel**; it is
+never committed to this public repo (entry 7), and because the file lives in the
+app's data volume it **survives every future app update** (only an uninstall
+clears it).
 
 The value belongs only on your box — do not paste your real range into a commit,
 a PR, or an issue.
 
 1. Open a shell on your Umbrel (SSH, or the Terminal app).
-2. Write your real LAN range into the app's data-volume config file (replace the
+2. Confirm your Docker Compose is new enough for this app's config mechanism — the
+   `env_file … required: false` form needs **Compose v2.24 (Jan 2024) or newer**:
+
+   ```bash
+   docker compose version
+   ```
+
+   Current umbrelOS ships well past this; if yours reports older than `v2.24`,
+   update umbrelOS first (on an older Compose the app fails to start with a compose
+   parse error rather than starting empty).
+3. Write your real LAN range into the app's data-volume config file (replace the
    example range with yours; the directory already exists after the app's first
    run):
 
@@ -234,16 +249,25 @@ a PR, or an issue.
    `/data` mount. If `~/umbrel` is not your install location, substitute your
    Umbrel root — `$UMBREL_ROOT/app-data/pipfox-miner-fleet/data/` — wherever that
    points on your host.
-3. Restart the app from the Umbrel UI (or `Stop` then `Start`). On restart, Docker
+4. Restart the app from the Umbrel UI (or `Stop` then `Start`). On restart, Docker
    Compose reads `config.env` and the sweep begins; the dashboard populates within
    a poll interval (~30 s).
 
-**If the fleet is still empty:** confirm the file path and that the range matches
-the subnet your miners are actually on (check a miner's IP in your router). The
-container reaches LAN addresses outbound over the bridge network, so no host
-networking is needed — only the correct range. `config.env` accepts any of the
-app's `MINER_FLEET_*` tunables (poll interval, timeouts); `MINER_FLEET_SUBNETS` is
-the only one you must set.
+**If the fleet is still empty**, work through it in this order:
+
+- **Confirm the value reached the container** (the optional check below). If it
+  reports `0`, `config.env` is missing, mis-pathed, or the app was not restarted —
+  a configuration problem, not a network one.
+- **Confirm the range matches where your miners are.** Check a miner's IP in your
+  router and make sure it falls inside the CIDR you set.
+- **Confirm the container can reach your LAN.** This app relies on Docker's bridge
+  network SNATing outbound traffic to your LAN — the normal case, and why no host
+  networking is needed. If the value is present and the range is right but the
+  fleet is still empty, an unusual router/firewall setup may be blocking the
+  container's bridge subnet from reaching the LAN; that is the one failure mode
+  outside this app's control. `config.env` also accepts the app's other
+  `MINER_FLEET_*` tunables (poll interval, timeouts); `MINER_FLEET_SUBNETS` is the
+  only one you must set.
 
 **Optional confirmation** that Compose is reading the file (does not print your
 range anywhere public):

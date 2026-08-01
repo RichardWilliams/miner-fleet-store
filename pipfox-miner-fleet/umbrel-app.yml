@@ -34,11 +34,11 @@ releaseNotes: >-
   survive app updates (an uninstall still clears them).
 
 
-  ONE SETUP STEP on first run: discovery cannot guess your LAN from inside
-  Umbrel's Docker network, so set your subnet once. Create
-  app-data/pipfox-miner-fleet/data/config.env on your Umbrel and add a line like
-  MINER_FLEET_SUBNETS=192.168.1.0/24 (your real range), then restart the app.
-  Full steps are in DEPLOY.md § 6.
+  ONE SETUP STEP on first run: with no subnet set, discovery sweeps the app's own
+  Docker network instead of your LAN and quietly finds nothing, so set your subnet
+  once. Create app-data/pipfox-miner-fleet/data/config.env on your Umbrel and add a
+  line like MINER_FLEET_SUBNETS=192.168.1.0/24 (your real range), then restart the
+  app. Full steps, and what to check if the fleet stays empty, are in DEPLOY.md § 6.
 developer: Pipfox
 submitter: Pipfox
 website: https://github.com/RichardWilliams/miner-fleet-store

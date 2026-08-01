@@ -37,9 +37,10 @@ already state, and no incident has occurred on this repo to write a receipt from
 Inventing rules ahead of a failure they would have prevented is exactly what the
 canonical standards' scope discipline forbids.
 
-The five constraints that DO bind this repo — store/app naming, networking mode,
-image pinning, which digest to pin, and icon hosting — are permanent decisions
-with recorded rationale, not style rules, so they live in
+The seven constraints that DO bind this repo — store/app naming, networking mode,
+image pinning, which digest to pin, icon hosting, the persistent `${APP_DATA_DIR}/data`
+volume, and operator runtime configuration via a data-volume env file — are
+permanent decisions with recorded rationale, not style rules, so they live in
 [`DECISIONS.md`](DECISIONS.md).
 
 Extensions land here when a rule is genuinely needed, each with the run, PR, or
