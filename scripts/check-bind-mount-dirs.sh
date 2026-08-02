@@ -194,19 +194,29 @@ for i in "${!host_subpaths[@]}"; do
   target="${repo_root}/${APP_ID}/${subpath}"
 
   # No component of the resolved bind-mount source — from the app template
-  # directory down to the leaf — may be a symlink. `[[ -e ]]` and `[[ -d ]]`
-  # below both FOLLOW symlinks, so accepting one would let a symlinked
-  # component escape this app's directory even though the compose STRING
-  # contains no traversal segment: `rsync --archive` (DECISIONS.md entry 8)
-  # ships symlinks AS symlinks, so a symlink committed at or above the
-  # bind-mount source reproduces on the box unchanged, and Docker resolves it
-  # at mount time — handing the uid-1000, `cap_drop: ALL` container a bind
-  # mount into whatever it points at. The leaf alone is not sufficient: a
-  # nested subpath (a shape this check already accepts) escapes just as well
-  # through an INTERMEDIATE component, so every component from the app
-  # directory down to the leaf is checked in turn and the offending one is
-  # named on failure.
+  # directory itself down to the leaf — may be a symlink. `[[ -e ]]` and
+  # `[[ -d ]]` below both FOLLOW symlinks, so accepting one would let a
+  # symlinked component escape this app's directory even though the compose
+  # STRING contains no traversal segment: `rsync --archive` (DECISIONS.md
+  # entry 8) ships symlinks AS symlinks, so a symlink committed at or above
+  # the bind-mount source reproduces on the box unchanged, and Docker
+  # resolves it at mount time — handing the uid-1000, `cap_drop: ALL`
+  # container a bind mount into whatever it points at. The leaf alone is not
+  # sufficient: a nested subpath (a shape this check already accepts) escapes
+  # just as well through an INTERMEDIATE component, and the app template
+  # directory itself is not exempt either — `lstat` resolves intermediate
+  # components transparently, so a symlinked `${APP_ID}` would make every
+  # `-L` check on an appended segment report on whatever real entry sits
+  # inside the symlink's target rather than on anything in this repo. So the
+  # walk starts by checking the app directory ITSELF, before any subpath
+  # segment is appended, and only then appends and checks each segment in
+  # turn — every component from the app directory down to the leaf is
+  # checked, including the starting point, and the offending one is named on
+  # failure.
   check_path="${repo_root}/${APP_ID}"
+  if [[ -L "$check_path" ]]; then
+    fail "bind-mount source contains a symlink: ${APP_ID}/docker-compose.yml declares '${source_line}' but '${APP_ID}' is a symlink, not a real directory. rsync --archive ships symlinks verbatim, so a symlinked app template directory would hand the uid-1000, cap_drop: ALL container a bind mount into whatever the symlink resolves to on the host. Ship a real directory at ${APP_ID}."
+  fi
   IFS='/' read -r -a target_segments <<< "$subpath"
   for segment in "${target_segments[@]}"; do
     check_path="${check_path}/${segment}"

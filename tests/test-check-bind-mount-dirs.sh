@@ -363,6 +363,33 @@ mkdir -p "${root}/${APP_ID}/state/db"
 assert_case 'symlink: ordinary real nested directory with no symlink still passes' 0 "$root" "OK: every declared app-data bind-mount source is shipped: ${APP_ID}/state/db"
 
 # ---------------------------------------------------------------------------
+# Case — SYMLINK AT THE APP TEMPLATE DIRECTORY ITSELF, not any subpath
+# component. The walk above only tests components it constructs by appending
+# subpath segments onto `${repo_root}/${APP_ID}` — the starting value was
+# never itself tested. `lstat` resolves intermediate path components
+# transparently, so when ${APP_ID} itself is a symlink, every `-L` check on
+# an appended segment reports on whatever real entry sits INSIDE the
+# symlink's target rather than on anything in this repo, and the walk finds
+# nothing to flag. This fixture cannot use make_fixture() — that helper
+# always creates a real ${APP_ID} directory, which is exactly the shape this
+# case must NOT have — so it builds the tree by hand. The compose file has to
+# live INSIDE the symlink target (not just a data/ directory) so the check
+# gets past the initial `[[ -f "$compose" ]]` existence guard and actually
+# reaches the walk; a fixture where the compose file itself is absent would
+# fail for an unrelated reason and prove nothing about this gap.
+# ---------------------------------------------------------------------------
+outside_target="${scratch}/symlink_app_dir_outside_target"
+mkdir -p "${outside_target}/data"
+printf '%s\n' "$COMPOSE_SIMPLE" > "${outside_target}/docker-compose.yml"
+
+root="${scratch}/symlink_app_dir"
+mkdir -p "${root}/scripts"
+cp "$SCRIPT_UNDER_TEST" "${root}/scripts/check-bind-mount-dirs.sh"
+chmod +x "${root}/scripts/check-bind-mount-dirs.sh"
+ln -s "$outside_target" "${root}/${APP_ID}"
+assert_case 'symlink: app template directory itself is a symlink fails closed' 1 "$root" "${APP_ID}' is a symlink"
+
+# ---------------------------------------------------------------------------
 # Case — QUOTED VOLUME ENTRIES. `- "${APP_DATA_DIR}/data:/data"` and the
 # single-quoted spelling are legal, common Compose short-syntax; a check that
 # false-BLOCKS them is as much a defect as one that misses a real drift
