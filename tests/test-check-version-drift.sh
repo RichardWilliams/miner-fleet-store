@@ -16,10 +16,15 @@ set -euo pipefail
 script_dir="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -P "${script_dir}/.." && pwd)"
 readonly SCRIPT_UNDER_TEST="${repo_root}/scripts/check-version-drift.sh"
+readonly LIB_UNDER_TEST="${repo_root}/scripts/lib/check-common.sh"
 readonly APP_ID="pipfox-miner-fleet"
 
 [[ -f "$SCRIPT_UNDER_TEST" ]] || {
   printf 'FATAL: script under test not found at %s\n' "$SCRIPT_UNDER_TEST" >&2
+  exit 1
+}
+[[ -f "$LIB_UNDER_TEST" ]] || {
+  printf 'FATAL: shared check lib not found at %s\n' "$LIB_UNDER_TEST" >&2
   exit 1
 }
 
@@ -37,9 +42,10 @@ source "$harness"
 make_fixture() {
   local name="$1" version_line="$2" image_line="$3"
   local root="${scratch}/${name}"
-  mkdir -p "${root}/scripts" "${root}/${APP_ID}"
+  mkdir -p "${root}/scripts/lib" "${root}/${APP_ID}"
   cp "$SCRIPT_UNDER_TEST" "${root}/scripts/check-version-drift.sh"
   chmod +x "${root}/scripts/check-version-drift.sh"
+  cp "$LIB_UNDER_TEST" "${root}/scripts/lib/check-common.sh"
 
   cat > "${root}/${APP_ID}/umbrel-app.yml" <<EOF
 manifestVersion: 1

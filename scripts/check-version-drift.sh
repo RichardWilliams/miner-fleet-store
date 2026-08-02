@@ -40,10 +40,8 @@ readonly APP_ID="pipfox-miner-fleet"
 manifest="${repo_root}/${APP_ID}/umbrel-app.yml"
 compose="${repo_root}/${APP_ID}/docker-compose.yml"
 
-fail() {
-  printf 'check-version-drift: FAIL: %s\n' "$1" >&2
-  exit 1
-}
+# fail() is shared with the sibling gates — see scripts/lib/check-common.sh.
+source "${script_dir}/lib/check-common.sh"
 
 # Guard order: required files before any parsing, so a missing file produces a
 # clear diagnostic rather than an empty-match error further down.

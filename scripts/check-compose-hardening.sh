@@ -28,10 +28,8 @@ readonly APP_ID="pipfox-miner-fleet"
 readonly SERVICE="server"
 compose="${repo_root}/${APP_ID}/docker-compose.yml"
 
-fail() {
-  printf 'check-compose-hardening: FAIL: %s\n' "$1" >&2
-  exit 1
-}
+# fail() is shared with the sibling gates — see scripts/lib/check-common.sh.
+source "${script_dir}/lib/check-common.sh"
 
 # Guard order: existence, then readability, before any parsing — so a permission
 # problem names its real cause instead of falling through to a parse diagnostic.
@@ -78,6 +76,7 @@ fi
 service_indent=-1
 current_service=""
 seen_server=0
+server_occurrences=0
 server_lines=()
 server_indents=()
 
@@ -102,7 +101,10 @@ for (( i = services_index + 1; i < ${#lines[@]}; i++ )); do
       fail "unclassifiable indentation: line '${line}' in ${APP_ID}/docker-compose.yml sits at the service-key indent (${service_indent}) but is not a '<name>:' service key, so this check cannot tell which service it belongs to."
     fi
     current_service="${BASH_REMATCH[1]}"
-    [[ "$current_service" == "$SERVICE" ]] && seen_server=1
+    if [[ "$current_service" == "$SERVICE" ]]; then
+      seen_server=1
+      server_occurrences=$(( server_occurrences + 1 ))
+    fi
     continue
   fi
 
@@ -119,6 +121,15 @@ done
 if (( seen_server == 0 )); then
   fail "no '${SERVICE}' service found under 'services:' in ${APP_ID}/docker-compose.yml — the service name is a hard naming contract (DECISIONS.md entry 1) and this check has nothing to assert on without it."
 fi
+# A duplicate top-level service key is ambiguous input: this walk aggregates
+# every line from every occurrence into server_lines, so a hardened first block
+# and an unhardened second one would combine into a false PASS. YAML's own
+# last-key-wins semantics would silently pick the LAST occurrence — this check
+# does not reproduce that; it fails on the ambiguity instead (same house
+# posture as scripts/check-version-drift.sh's require_exactly_one).
+if (( server_occurrences > 1 )); then
+  fail "duplicate '${SERVICE}:' service key found ${server_occurrences} times under 'services:' in ${APP_ID}/docker-compose.yml — a repeated service key is ambiguous input this check refuses to resolve by picking a winner. Remove the duplicate."
+fi
 if (( ${#server_lines[@]} == 0 )); then
   fail "the '${SERVICE}' service in ${APP_ID}/docker-compose.yml declares no directives, so this check verified nothing."
 fi
@@ -126,11 +137,31 @@ fi
 # Collect the block-sequence entries declared under <key> on the server service
 # into `sequence_items`. Returns non-zero when the key is absent; refuses
 # outright when the key carries an inline value this check does not parse.
+#
+# DUPLICATE KEYS. A second occurrence of `<key>:` anywhere in the server block
+# (block form or inline flow form) is ambiguous input, not a value to resolve:
+# YAML's own last-key-wins semantics would silently pick the LAST occurrence,
+# and this check does not reproduce that. It fails closed instead — same house
+# posture as scripts/check-version-drift.sh's require_exactly_one. The count is
+# taken BEFORE any collection so an inline-flow duplicate is caught by name too,
+# and so this cannot be satisfied by the first (possibly hardened) copy alone
+# while a second, unhardened copy is silently aggregated in.
 sequence_items=()
 collect_sequence() {
   local key="$1"
-  local key_indent=-1 i
+  local key_indent=-1 i key_occurrences=0
   sequence_items=()
+
+  for (( i = 0; i < ${#server_lines[@]}; i++ )); do
+    if [[ "${server_lines[$i]}" =~ ^[[:space:]]*${key}:[[:space:]]*$ ]] \
+      || [[ "${server_lines[$i]}" =~ ^[[:space:]]*${key}:[[:space:]]*[^[:space:]] ]]; then
+      key_occurrences=$(( key_occurrences + 1 ))
+    fi
+  done
+  if (( key_occurrences > 1 )); then
+    fail "the ${SERVICE} service declares '${key}:' ${key_occurrences} times in ${APP_ID}/docker-compose.yml. A duplicate directive key is ambiguous input this check refuses to resolve by picking a winner. Remove the duplicate."
+  fi
+
   for (( i = 0; i < ${#server_lines[@]}; i++ )); do
     if (( key_indent < 0 )); then
       if [[ "${server_lines[$i]}" =~ ^[[:space:]]*${key}:[[:space:]]*$ ]]; then
@@ -168,7 +199,18 @@ collect_sequence security_opt \
 sequence_contains 'no-new-privileges:true' \
   || fail "the ${SERVICE} service's 'security_opt:' does not set no-new-privileges:true in ${APP_ID}/docker-compose.yml — it lists '${sequence_items[*]}'. Restore it (DECISIONS.md entry 6)."
 
-for line in "${server_lines[@]}"; do
+# Scoped to the server service's OWN directive-level indent — the indent of
+# the first line collected into server_lines, which by construction is the
+# first directive key directly under `server:` (the same technique
+# collect_sequence uses one level up, via key_indent). Unscoped, these checks
+# would trip on a deeper-nested key that merely CONTAINS one of these names
+# (e.g. an `environment:` entry literally named `ports`), false-FAILing a
+# compliant file on a diagnostic that misdirects toward a networking
+# regression that does not exist.
+directive_indent="${server_indents[0]}"
+for (( i = 0; i < ${#server_lines[@]}; i++ )); do
+  line="${server_lines[$i]}"
+  (( server_indents[i] != directive_indent )) && continue
   if [[ "$line" =~ $NETWORK_HOST_ERE ]]; then
     fail "the ${SERVICE} service declares network_mode: host in ${APP_ID}/docker-compose.yml ('${line}'). Bridge networking already reaches the miners, and host networking costs the app_proxy auth layer in front of the app (DECISIONS.md entry 2)."
   fi

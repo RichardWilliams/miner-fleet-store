@@ -17,10 +17,15 @@ set -euo pipefail
 script_dir="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -P "${script_dir}/.." && pwd)"
 readonly SCRIPT_UNDER_TEST="${repo_root}/scripts/check-bind-mount-dirs.sh"
+readonly LIB_UNDER_TEST="${repo_root}/scripts/lib/check-common.sh"
 readonly APP_ID="pipfox-miner-fleet"
 
 [[ -f "$SCRIPT_UNDER_TEST" ]] || {
   printf 'FATAL: script under test not found at %s\n' "$SCRIPT_UNDER_TEST" >&2
+  exit 1
+}
+[[ -f "$LIB_UNDER_TEST" ]] || {
+  printf 'FATAL: shared check lib not found at %s\n' "$LIB_UNDER_TEST" >&2
   exit 1
 }
 
@@ -40,9 +45,10 @@ source "$harness"
 make_fixture() {
   local name="$1" compose_body="$2"
   local root="${scratch}/${name}"
-  mkdir -p "${root}/scripts" "${root}/${APP_ID}"
+  mkdir -p "${root}/scripts/lib" "${root}/${APP_ID}"
   cp "$SCRIPT_UNDER_TEST" "${root}/scripts/check-bind-mount-dirs.sh"
   chmod +x "${root}/scripts/check-bind-mount-dirs.sh"
+  cp "$LIB_UNDER_TEST" "${root}/scripts/lib/check-common.sh"
   printf '%s\n' "$compose_body" > "${root}/${APP_ID}/docker-compose.yml"
   printf '%s' "$root"
 }
@@ -274,9 +280,10 @@ mkdir -p "${outside_target}/data"
 printf '%s\n' "$COMPOSE_SIMPLE" > "${outside_target}/docker-compose.yml"
 
 root="${scratch}/symlink_app_dir"
-mkdir -p "${root}/scripts"
+mkdir -p "${root}/scripts/lib"
 cp "$SCRIPT_UNDER_TEST" "${root}/scripts/check-bind-mount-dirs.sh"
 chmod +x "${root}/scripts/check-bind-mount-dirs.sh"
+cp "$LIB_UNDER_TEST" "${root}/scripts/lib/check-common.sh"
 ln -s "$outside_target" "${root}/${APP_ID}"
 run_case 'symlink: app template directory itself is a symlink fails closed' 1 "$root" "${APP_ID}' is a symlink"
 

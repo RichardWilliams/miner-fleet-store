@@ -22,10 +22,8 @@ repo_root="$(cd -P "${script_dir}/.." && pwd)"
 readonly APP_ID="pipfox-miner-fleet"
 compose="${repo_root}/${APP_ID}/docker-compose.yml"
 
-fail() {
-  printf 'check-bind-mount-dirs: FAIL: %s\n' "$1" >&2
-  exit 1
-}
+# fail() is shared with the sibling gates — see scripts/lib/check-common.sh.
+source "${script_dir}/lib/check-common.sh"
 
 # Guard order: existence, then readability, before any parsing — so a permission
 # problem names its real cause instead of falling through to the branch below.

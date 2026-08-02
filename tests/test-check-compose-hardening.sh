@@ -13,10 +13,15 @@ set -euo pipefail
 script_dir="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -P "${script_dir}/.." && pwd)"
 readonly SCRIPT_UNDER_TEST="${repo_root}/scripts/check-compose-hardening.sh"
+readonly LIB_UNDER_TEST="${repo_root}/scripts/lib/check-common.sh"
 readonly APP_ID="pipfox-miner-fleet"
 
 [[ -f "$SCRIPT_UNDER_TEST" ]] || {
   printf 'FATAL: script under test not found at %s\n' "$SCRIPT_UNDER_TEST" >&2
+  exit 1
+}
+[[ -f "$LIB_UNDER_TEST" ]] || {
+  printf 'FATAL: shared check lib not found at %s\n' "$LIB_UNDER_TEST" >&2
   exit 1
 }
 
@@ -34,9 +39,10 @@ source "$harness"
 make_fixture() {
   local name="$1" compose_body="$2"
   local root="${scratch}/${name}"
-  mkdir -p "${root}/scripts" "${root}/${APP_ID}"
+  mkdir -p "${root}/scripts/lib" "${root}/${APP_ID}"
   cp "$SCRIPT_UNDER_TEST" "${root}/scripts/check-compose-hardening.sh"
   chmod +x "${root}/scripts/check-compose-hardening.sh"
+  cp "$LIB_UNDER_TEST" "${root}/scripts/lib/check-common.sh"
   printf '%s\n' "$compose_body" > "${root}/${APP_ID}/docker-compose.yml"
   printf '%s' "$root"
 }
@@ -358,5 +364,158 @@ run_case 'structure: a line between top-level and service-key indent fails close
 # a service by counting spaces.
 root="$(make_fixture tab_indent "$(printf 'services:\n  app_proxy:\n    environment:\n      APP_HOST: pipfox-miner-fleet_server_1\n\n  server:\n    security_opt:\n      - no-new-privileges:true\n    cap_drop:\n      - ALL\n\trestart: on-failure')")"
 run_case 'structure: tab-indented line fails closed' 1 "$root" 'non-space indentation'
+
+# DUPLICATE KEYS (J1). `docker compose config` rejects both of these shapes
+# outright ("mapping key already defined"), so this is not a live path to an
+# unhardened container — but this gate previously aggregated both blocks or
+# took the first match, reporting OK on input it never actually established as
+# safe. A duplicate is ambiguous; PyYAML's own last-key-wins would silently
+# pick the SECOND (here, unhardened) occurrence, which this check refuses to
+# reproduce.
+root="$(make_fixture duplicate_cap_drop 'services:
+  app_proxy:
+    environment:
+      APP_HOST: pipfox-miner-fleet_server_1
+
+  server:
+    image: example/app:1.0.0
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_drop:
+      - NET_ADMIN')"
+run_case 'duplicate: cap_drop declared twice on server fails closed' 1 "$root" "declares 'cap_drop:' 2 times"
+
+root="$(make_fixture duplicate_security_opt 'services:
+  app_proxy:
+    environment:
+      APP_HOST: pipfox-miner-fleet_server_1
+
+  server:
+    image: example/app:1.0.0
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    security_opt:
+      - seccomp:unconfined')"
+run_case 'duplicate: security_opt declared twice on server fails closed' 1 "$root" "declares 'security_opt:' 2 times"
+
+root="$(make_fixture duplicate_server_service 'services:
+  app_proxy:
+    environment:
+      APP_HOST: pipfox-miner-fleet_server_1
+
+  server:
+    image: example/app:1.0.0
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  server:
+    image: example/app:2.0.0
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - NET_ADMIN')"
+run_case 'duplicate: server service key declared twice fails closed' 1 "$root" "duplicate 'server:' service key"
+
+# UNSCOPED KEY MATCH (J2). A compliant server that also carries a deeper-nested
+# key merely NAMED `ports` or `network_mode` (e.g. under `environment:`) must
+# still PASS — the negative checks are scoped to the server's own
+# directive-level indent, the same technique collect_sequence uses one level
+# up, so a nested same-named key cannot false-trip them.
+root="$(make_fixture nested_key_named_ports 'services:
+  app_proxy:
+    environment:
+      APP_HOST: pipfox-miner-fleet_server_1
+
+  server:
+    image: example/app:1.0.0
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      ports: "some string"')"
+run_case 'scoping: a nested environment entry literally named ports passes' 0 "$root" 'OK: server drops ALL capabilities'
+
+root="$(make_fixture nested_key_named_network_mode 'services:
+  app_proxy:
+    environment:
+      APP_HOST: pipfox-miner-fleet_server_1
+
+  server:
+    image: example/app:1.0.0
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      network_mode: "not real networking"')"
+run_case 'scoping: a nested environment entry literally named network_mode passes' 0 "$root" 'OK: server drops ALL capabilities'
+
+# The mirror direction: a REAL network_mode/ports directive at the server's own
+# directive-level indent must still FAIL. This is the same fixture shape as the
+# two pre-existing "negative:" cases above; repeated here beside the scoping
+# fix so the scoping change is proven in both directions in one place.
+root="$(make_fixture directive_level_network_mode_still_fails 'services:
+  app_proxy:
+    environment:
+      APP_HOST: pipfox-miner-fleet_server_1
+
+  server:
+    image: example/app:1.0.0
+    network_mode: host
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL')"
+run_case 'scoping: a real directive-level network_mode: host still fails' 1 "$root" 'declares network_mode: host'
+
+root="$(make_fixture directive_level_ports_still_fails 'services:
+  app_proxy:
+    environment:
+      APP_HOST: pipfox-miner-fleet_server_1
+
+  server:
+    image: example/app:1.0.0
+    ports:
+      - "3007:3000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL')"
+run_case 'scoping: a real directive-level published port still fails' 1 "$root" 'publishes a host port'
+
+# REALISTIC OMISSION SHAPE (J3). The pre-existing "declares no directives"
+# cases only cover a fully empty server block or an absent server service.
+# Neither covers the shape an actual regression would take: other directives
+# present, with cap_drop or security_opt SPECIFICALLY omitted.
+root="$(make_fixture cap_drop_omitted 'services:
+  app_proxy:
+    environment:
+      APP_HOST: pipfox-miner-fleet_server_1
+
+  server:
+    image: example/app:1.0.0
+    restart: on-failure
+    security_opt:
+      - no-new-privileges:true')"
+run_case 'omission: cap_drop absent while other directives are present fails' 1 "$root" "declares no 'cap_drop:' block sequence"
+
+root="$(make_fixture security_opt_omitted 'services:
+  app_proxy:
+    environment:
+      APP_HOST: pipfox-miner-fleet_server_1
+
+  server:
+    image: example/app:1.0.0
+    restart: on-failure
+    cap_drop:
+      - ALL')"
+run_case 'omission: security_opt absent while other directives are present fails' 1 "$root" "declares no 'security_opt:' block sequence"
 
 report_summary
