@@ -13,7 +13,8 @@ file and the directory layout — and are appended by that PR, atomic with the
 change, per codespace CLAUDE.md RULE #0. Entry 6's ownership claim was corrected,
 and entry 8 appended, by the PR closing `#8` — the fix for a fresh-install
 crash loop caused by that entry's original, unverified claim about who creates
-and owns the bind-mount source.
+and owns the bind-mount source. That same PR appended entry 9, recording the
+gate it added to enforce the `server` service's hardening mechanically.
 
 ---
 
@@ -345,3 +346,31 @@ work), or the install base grows past the point where a documented one-off
 `chown` is a reasonable recovery for an already-broken box, or umbrelOS gains a
 first-class per-app data-permission mechanism that makes either rejected option
 above safe to adopt.
+
+---
+
+## 9. The `server` service's hardening is enforced mechanically, not by inspection
+
+**Statement.** `scripts/check-compose-hardening.sh` asserts, on the `server`
+service alone, that `cap_drop:` contains `ALL`, that `security_opt:` contains
+`no-new-privileges:true`, that no `network_mode: host` is declared, and that no
+host `ports:` are published. It runs in `.local-ci.yml`, so the push gate and CI
+execute it identically. It fails closed on anything it cannot parse.
+
+**Why.** Entries 2 and 6 already record this hardening as a decision, but a
+decision recorded in prose is only checked when someone reads the file. The PR
+that added this gate verified the property by inspection — every compose line it
+changed was a comment, so nothing about the `server` service moved — and that
+inspection covers exactly one reading of one diff. It does not survive the next
+one. A later edit that drops `cap_drop:` while rewording the prose around it
+produces a container that still starts, still passes the version-drift and
+bind-mount gates, and silently runs with full capabilities on the operator's box.
+The assertion is scoped to `server` because `app_proxy` is Umbrel's injected
+reverse-proxy: a directive found there says nothing about the container that runs
+the app, so a whole-file match would report safety it never established.
+
+**Revisit if.** umbrelOS stops fronting community apps with `app_proxy` (which is
+what makes a published host port unnecessary), or the app acquires a genuine need
+for host networking or a retained capability. In either case entries 1, 2 or 6
+change first and this gate follows them — the gate is downstream of those
+decisions, never the reason to keep one.

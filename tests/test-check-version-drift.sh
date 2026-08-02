@@ -23,20 +23,14 @@ readonly APP_ID="pipfox-miner-fleet"
   exit 1
 }
 
-scratch=""
-# ONE cleanup handler, registered once (codespace docs/coding-standards.md
-# § 9.3 — a second `trap ... EXIT` at this scope would silently replace it).
-cleanup() {
-  [[ -n "$scratch" && -d "$scratch" ]] && rm -rf "$scratch"
+# The scratch dir, its single cleanup trap, the counters, assert_case and the
+# summary line are shared with the sibling suites.
+harness="${script_dir}/lib/bash-test-harness.sh"
+[[ -f "$harness" ]] || {
+  printf 'FATAL: shared test harness not found at %s\n' "$harness" >&2
+  exit 1
 }
-trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-
-scratch="$(mktemp -d)"
-
-failures=0
-passes=0
+source "$harness"
 
 # Build a fixture repo. $1 = fixture name, $2 = manifest version line,
 # $3 = compose image line. Returns the fixture root on stdout.
@@ -70,29 +64,10 @@ EOF
   printf '%s' "$root"
 }
 
-# $1 = case description, $2 = expected exit (0 pass / 1 fail),
-# $3 = fixture root, $4 = substring expected in output (empty to skip)
-assert_case() {
-  local desc="$1" expected="$2" root="$3" expect_substr="$4"
-  local out="" rc=0
-  out="$(bash "${root}/scripts/check-version-drift.sh" 2>&1)" || rc=$?
-
-  if (( rc != expected )); then
-    printf 'FAIL: %s — expected exit %d, got %d\n' "$desc" "$expected" "$rc" >&2
-    printf '      output: %s\n' "$out" >&2
-    failures=$(( failures + 1 ))
-    return
-  fi
-
-  if [[ -n "$expect_substr" && "$out" != *"$expect_substr"* ]]; then
-    printf 'FAIL: %s — exit %d correct, but output did not contain %q\n' "$desc" "$rc" "$expect_substr" >&2
-    printf '      output: %s\n' "$out" >&2
-    failures=$(( failures + 1 ))
-    return
-  fi
-
-  printf 'PASS: %s\n' "$desc"
-  passes=$(( passes + 1 ))
+# Run the fixture's copy of the script. $1 = case description, $2 = expected
+# exit, $3 = fixture root, $4 = substring expected in the output.
+run_case() {
+  assert_case "$1" "$2" "$4" bash "${3}/scripts/check-version-drift.sh"
 }
 
 readonly GOOD_IMAGE='    image: ghcr.io/richardwilliams/miner-fleet:0.1.0@sha256:da0e81a0f568255bd6dac6f12274c9aec88661bba9a49057cfb57b5974e74c01'
@@ -101,7 +76,7 @@ readonly GOOD_IMAGE='    image: ghcr.io/richardwilliams/miner-fleet:0.1.0@sha256
 # Case 1 — MATCH. Manifest and compose agree; the check passes.
 # ---------------------------------------------------------------------------
 root="$(make_fixture match 'version: "0.1.0"' "$GOOD_IMAGE")"
-assert_case 'match: manifest 0.1.0 == compose 0.1.0 passes' 0 "$root" 'OK'
+run_case 'match: manifest 0.1.0 == compose 0.1.0 passes' 0 "$root" 'OK'
 
 # ---------------------------------------------------------------------------
 # Cases 1a-1d — LEGITIMATE VARIANTS must PASS.
@@ -116,16 +91,16 @@ assert_case 'match: manifest 0.1.0 == compose 0.1.0 passes' 0 "$root" 'OK'
 # hand. Asymmetric coverage is the defect these cases close.
 # ---------------------------------------------------------------------------
 root="$(make_fixture variant_single_quote "version: '0.1.0'" "$GOOD_IMAGE")"
-assert_case 'variant: single-quoted version passes' 0 "$root" 'OK'
+run_case 'variant: single-quoted version passes' 0 "$root" 'OK'
 
 root="$(make_fixture variant_unquoted 'version: 0.1.0' "$GOOD_IMAGE")"
-assert_case 'variant: unquoted version passes' 0 "$root" 'OK'
+run_case 'variant: unquoted version passes' 0 "$root" 'OK'
 
 root="$(make_fixture variant_manifest_comment 'version: "0.1.0"  # bumped by the release procedure' "$GOOD_IMAGE")"
-assert_case 'variant: trailing comment on version passes' 0 "$root" 'OK'
+run_case 'variant: trailing comment on version passes' 0 "$root" 'OK'
 
 root="$(make_fixture variant_compose_comment 'version: "0.1.0"' "${GOOD_IMAGE}  # index digest, not per-platform")"
-assert_case 'variant: trailing comment on image passes' 0 "$root" 'OK'
+run_case 'variant: trailing comment on image passes' 0 "$root" 'OK'
 
 # ---------------------------------------------------------------------------
 # ADVERSARIAL comment collisions.
@@ -141,10 +116,10 @@ assert_case 'variant: trailing comment on image passes' 0 "$root" 'OK'
 # agreement on the comment's version rather than the real pin.
 # ---------------------------------------------------------------------------
 root="$(make_fixture adversarial_masks_drift 'version: "0.2.0"' "${GOOD_IMAGE}  # bumping to richardwilliams/miner-fleet:0.2.0")"
-assert_case 'adversarial: comment naming the manifest version must NOT mask real drift' 1 "$root" "pins image tag '0.1.0'"
+run_case 'adversarial: comment naming the manifest version must NOT mask real drift' 1 "$root" "pins image tag '0.1.0'"
 
 root="$(make_fixture adversarial_false_reject 'version: "0.1.0"' "${GOOD_IMAGE}  # previously pinned richardwilliams/miner-fleet:0.0.9")"
-assert_case 'adversarial: comment naming an older version must NOT cause a false reject' 0 "$root" 'agree on 0.1.0'
+run_case 'adversarial: comment naming an older version must NOT cause a false reject' 0 "$root" 'agree on 0.1.0'
 
 # The same collision class, applied to the MANIFEST side. Its extraction is
 # anchored and therefore safe by construction, but that was equally true of the
@@ -152,16 +127,16 @@ assert_case 'adversarial: comment naming an older version must NOT cause a false
 # symmetric, so the coverage is too: a manual proof that a second occurrence
 # cannot be picked up is exactly the proof that failed twice already.
 root="$(make_fixture adversarial_manifest_comment 'version: "0.1.0"  # was version: 0.0.9 before the bump' "$GOOD_IMAGE")"
-assert_case 'adversarial: comment naming another version on the version line does not shift extraction' 0 "$root" 'agree on 0.1.0'
+run_case 'adversarial: comment naming another version on the version line does not shift extraction' 0 "$root" 'agree on 0.1.0'
 
 root="$(make_fixture adversarial_manifest_drift 'version: "0.2.0"  # matches image tag 0.1.0' "$GOOD_IMAGE")"
-assert_case 'adversarial: comment on the version line must NOT mask real drift' 1 "$root" "declares '0.2.0'"
+run_case 'adversarial: comment on the version line must NOT mask real drift' 1 "$root" "declares '0.2.0'"
 
 # The variants must still DETECT drift — a pattern loosened until it matches
 # anything would pass the four cases above while proving nothing. Single-quoted
 # and drifted must fail.
 root="$(make_fixture variant_quote_drift "version: '0.2.0'" "$GOOD_IMAGE")"
-assert_case 'variant: single-quoted 0.2.0 vs compose 0.1.0 still fails' 1 "$root" 'version drift'
+run_case 'variant: single-quoted 0.2.0 vs compose 0.1.0 still fails' 1 "$root" 'version drift'
 
 # ---------------------------------------------------------------------------
 # Case 2 — DRIFT. This is the real-world failure: a release PR bumps the
@@ -169,7 +144,7 @@ assert_case 'variant: single-quoted 0.2.0 vs compose 0.1.0 still fails' 1 "$root
 # runs 0.1.0. Must fail, and must name both values so the diagnosis is immediate.
 # ---------------------------------------------------------------------------
 root="$(make_fixture drift 'version: "0.2.0"' "$GOOD_IMAGE")"
-assert_case 'drift: manifest 0.2.0 vs compose 0.1.0 fails' 1 "$root" 'version drift'
+run_case 'drift: manifest 0.2.0 vs compose 0.1.0 fails' 1 "$root" 'version drift'
 
 # ---------------------------------------------------------------------------
 # Case 3 — MALFORMED. Fail-closed: an image line the pattern cannot parse is a
@@ -178,26 +153,26 @@ assert_case 'drift: manifest 0.2.0 vs compose 0.1.0 fails' 1 "$root" 'version dr
 # skipped here would wave through exactly the reference the decision forbids.
 # ---------------------------------------------------------------------------
 root="$(make_fixture malformed_image 'version: "0.1.0"' '    image: ghcr.io/richardwilliams/miner-fleet:latest')"
-assert_case 'malformed: unpinned :latest image fails closed' 1 "$root" 'well-formed pinned'
+run_case 'malformed: unpinned :latest image fails closed' 1 "$root" 'well-formed pinned'
 
 # Malformed, second shape — the manifest field absent entirely. Covers the other
 # half of fail-closed: an unreadable input on the manifest side, not the compose
 # side.
 root="$(make_fixture malformed_manifest 'name_only: nothing' "$GOOD_IMAGE")"
-assert_case "malformed: absent manifest 'version:' fails closed" 1 "$root" "well-formed 'version:'"
+run_case "malformed: absent manifest 'version:' fails closed" 1 "$root" "well-formed 'version:'"
 
 # Malformed, third shape — a digest-less bare tag. Reproducible-pinning is the
 # point of DECISIONS entry 3; a bare tag parses as a semver but is not a pin, so
 # the pattern must reject it rather than compare it successfully.
 root="$(make_fixture malformed_no_digest 'version: "0.1.0"' '    image: ghcr.io/richardwilliams/miner-fleet:0.1.0')"
-assert_case 'malformed: tag without digest fails closed' 1 "$root" 'well-formed pinned'
+run_case 'malformed: tag without digest fails closed' 1 "$root" 'well-formed pinned'
 
 # Malformed, fourth shape — mismatched quote characters. Valid-looking but not
 # valid YAML. Accepting it would contradict the fail-closed contract, and the
 # earlier `['\"]?...['\"]?` form did exactly that by matching the opening and
 # closing quote independently.
 root="$(make_fixture malformed_mismatched_quotes "version: '0.1.0\"" "$GOOD_IMAGE")"
-assert_case 'malformed: mismatched quote characters fail closed' 1 "$root" "well-formed 'version:'"
+run_case 'malformed: mismatched quote characters fail closed' 1 "$root" "well-formed 'version:'"
 
 # ---------------------------------------------------------------------------
 # Falsifiability guard — a duplicated field is ambiguous, and picking one copy
@@ -205,21 +180,20 @@ assert_case 'malformed: mismatched quote characters fail closed' 1 "$root" "well
 # ---------------------------------------------------------------------------
 root="$(make_fixture duplicate_version 'version: "0.1.0"' "$GOOD_IMAGE")"
 printf 'version: "0.9.9"\n' >> "${root}/${APP_ID}/umbrel-app.yml"
-assert_case 'ambiguous: two version lines fail closed' 1 "$root" 'cannot determine which is authoritative'
+run_case 'ambiguous: two version lines fail closed' 1 "$root" 'cannot determine which is authoritative'
 
 # `require_exactly_one` is shared by both sides, so testing it on the manifest
 # alone left the compose call site unexercised. It failed closed there correctly
 # — but by hand-reasoning, not by test. This makes it mechanical.
 root="$(make_fixture duplicate_compose_image 'version: "0.1.0"' "$GOOD_IMAGE")"
 printf '%s\n' "$GOOD_IMAGE" >> "${root}/${APP_ID}/docker-compose.yml"
-assert_case 'ambiguous: two image lines fail closed' 1 "$root" 'cannot determine which is authoritative'
+run_case 'ambiguous: two image lines fail closed' 1 "$root" 'cannot determine which is authoritative'
 
 # ---------------------------------------------------------------------------
 # Missing-file guard — the first thing the script checks.
 # ---------------------------------------------------------------------------
 root="$(make_fixture missing_compose 'version: "0.1.0"' "$GOOD_IMAGE")"
 rm -f "${root}/${APP_ID}/docker-compose.yml"
-assert_case 'missing: absent compose file fails closed' 1 "$root" 'compose file not found'
+run_case 'missing: absent compose file fails closed' 1 "$root" 'compose file not found'
 
-printf '\n%d passed, %d failed\n' "$passes" "$failures"
-(( failures == 0 )) || exit 1
+report_summary

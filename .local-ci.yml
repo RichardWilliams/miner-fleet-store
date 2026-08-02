@@ -52,3 +52,17 @@ steps:
   - name: test-bind-mount-dirs
     run: bash tests/test-check-bind-mount-dirs.sh
     timeout: 120
+
+  # The `server` service's hardening — cap_drop: ALL, no-new-privileges:true, no
+  # host networking, no published host port (DECISIONS.md entries 1, 2 and 6) —
+  # asserted mechanically rather than by reading the diff. A compose edit that
+  # drops one of them yields a container that still starts and still passes every
+  # other gate here, while running with full capabilities (DECISIONS.md entry 9).
+  - name: compose-hardening
+    run: bash scripts/check-compose-hardening.sh
+    timeout: 60
+
+  # That check's own tests, for the same reason the drift check has them.
+  - name: test-compose-hardening
+    run: bash tests/test-check-compose-hardening.sh
+    timeout: 120
