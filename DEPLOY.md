@@ -54,6 +54,14 @@ A bumped `version` with an unchanged image digest is a no-op deployment: umbrelO
 shows an update, pulls the same bytes, and nothing changes. Both fields move
 together — see § 3.
 
+Not every change to this repo needs a `version` bump, though — only ones an
+existing box needs to be told about. A store-packaging fix that a **fresh
+install already picks up with no version change at all** — for example, `#8`'s
+`data/.gitkeep` (DECISIONS.md entry 8): umbreld's install rsync copies whatever
+this repo currently holds, so a new install gets the fix regardless of
+`version` — lands in place, no bump, no image re-release. § 3's procedure is
+for releases that change what an *already-installed* box is running.
+
 ---
 
 ## 3. Release procedure
@@ -150,6 +158,26 @@ anything — Docker's `restart:` policy does not act on health status — so an
 unhealthy-but-running app stays up and must be restarted from the Umbrel UI.
 Check the app's logs for why the endpoint stopped answering.
 
+**The app crash-loops on a fresh install with a SQLite/database error in the
+logs.** This is `#8`: on a box installed before this fix, `${APP_DATA_DIR}/data`
+was created `root:root` at `compose up` because the store repo did not yet ship
+a `data/` directory in the app template, and the container (uid 1000, `cap_drop:
+ALL`) cannot write into a root-owned mount. Fix it once, manually:
+
+```bash
+sudo chown -R 1000:1000 ~/umbrel/app-data/pipfox-miner-fleet/data
+```
+
+Then restart the app from the Umbrel UI. This is a manual, one-off recovery,
+not something an app update can do for you: `data/` is outside umbreld's
+update whitelist (the `legacy-compat/app-script` file list that an update
+actually touches never includes it), so no version of this store can push a fix
+into that directory on an already-installed box — only a shell command you run
+yourself can. A **fresh install or a full reinstall** does not need this step:
+umbreld's install rsync copies the app template — including the `data/`
+directory this repo now ships — so `${APP_DATA_DIR}/data` is created
+`1000:1000` from the start, and the app writes to it immediately.
+
 ---
 
 ## 5. Decisions and why they are not free to change
@@ -192,12 +220,16 @@ inventory and telemetry to a SQLite database under `/data`, bind-mounted from
 `${APP_DATA_DIR}/data`. That directory **survives app updates and is cleared only
 on uninstall** (verified against `getumbrel/umbrel` app.ts: the update path never
 removes the data dir; uninstall does). The image runs as **uid 1000** (the
-node:alpine `node` account), matching umbreld's `1000:1000` app-data ownership, so
-the container writes there under `cap_drop: ALL` + `no-new-privileges:true` with
-no root chown — do NOT relax the hardening to "fix" a write permission; a
-permission failure means the uid or the mount source ownership is wrong, not that
-the hardening is. (The earlier bootstrap note citing uid 1001 predated the shipped
-runtime; the image was changed to 1000 precisely so this mount is writable.)
+node:alpine `node` account). What makes the mount writable is that this repo
+SHIPS `pipfox-miner-fleet/data/.gitkeep` (entry 8): umbreld's fresh-install rsync
+copies the app template verbatim and creates only what the template ships, owned
+`1000:1000` — it does not pre-create arbitrary subdirectories on its own. Delete
+that `.gitkeep` and the directory Docker creates instead at `compose up` is
+`root:root`, which the hardened container cannot write into
+(`scripts/check-bind-mount-dirs.sh` enforces this at push time). Do NOT relax the
+hardening to "fix" a write permission; a permission failure means `data/.gitkeep`
+is missing or a box needs the one-off recovery in § 4, not that the hardening is
+wrong.
 
 **Operator config lives on the box, never in this repo** (entry 7). The subnet to
 sweep is read from `${APP_DATA_DIR}/data/config.env`, a file the operator creates

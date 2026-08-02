@@ -10,7 +10,10 @@ work, recorded in `miner-fleet-store#1`'s issue body; they were captured by the
 bootstrap PR ahead of the structural change that implements them. Entries 4-5
 are decisions made by `#1` itself — the PR that landed the manifests, the compose
 file and the directory layout — and are appended by that PR, atomic with the
-change, per codespace CLAUDE.md RULE #0.
+change, per codespace CLAUDE.md RULE #0. Entry 6's ownership claim was corrected,
+and entry 8 appended, by the PR closing `#8` — the fix for a fresh-install
+crash loop caused by that entry's original, unverified claim about who creates
+and owns the bind-mount source.
 
 ---
 
@@ -190,11 +193,30 @@ the app files (including this `docker-compose.yml`, so a new `volumes:` / `env_f
 lands) over an explicit whitelist that never includes the `data/` subdirectory, and
 uninstall removes the whole data directory via `app.ts`'s
 `fse.remove(this.dataDirectory)`. The shipped precedent is vaultwarden's
-`${APP_DATA_DIR}/data:/data` with `user: "1000:1000"`. The image runs as uid/gid
-`1000:1000` (miner-fleet's `docker/Dockerfile` and its `DECISIONS.md` entry 12) and
-umbreld owns the bind-mount source `1000:1000`, so the container writes under
-`cap_drop: ALL` + `no-new-privileges:true` with no root chown — the hardening does
-not need relaxing, and must not be relaxed to make the volume writable.
+`${APP_DATA_DIR}/data:/data` — specifically its committed `data/.gitkeep`, not
+the `user: "1000:1000"` line beside it. That earlier framing was wrong and
+shipped a fresh-install crash loop (`#8`): the `user:` directive governs which
+uid the CONTAINER runs as, and has no bearing on how Docker creates a MISSING
+bind-mount source on the HOST side, so citing it as the reason vaultwarden's
+mount works was a mis-read. What actually verified is `getumbrel/umbrel`
+apps.ts `install()`: it does `fse.mkdirp(appDataDirectory)` then
+`rsync --archive --exclude ".gitkeep" <template>/. <app-data-dir>` — that rsync
+is the ONLY thing that materialises app-data on a fresh install, and it
+pre-creates a subdirectory of it ONLY when the store repo SHIPS that
+subdirectory inside the app template. umbreld's apps module has no chown apart
+from a hardcoded `tor` path (`apps.ts:169`). A falsification sweep of
+`getumbrel/umbrel-apps` confirms the shape: of 333 apps mounting
+`${APP_DATA_DIR}/data`, 332 — including vaultwarden — ship a committed
+`data/.gitkeep`; the one exception (`file-drop`) instead runs a `hooks/pre-start`
+`mkdir -p` + `chown`. So this repo ships `pipfox-miner-fleet/data/.gitkeep`,
+which is what makes `${APP_DATA_DIR}/data` exist, owned `1000:1000`, before the
+container starts (the image itself runs as uid/gid `1000:1000` per
+miner-fleet's `docker/Dockerfile` and its `DECISIONS.md` entry 12), and the
+container writes under `cap_drop: ALL` + `no-new-privileges:true` with no root
+chown — the hardening does not need relaxing, and must not be relaxed to make
+the volume writable. `scripts/check-bind-mount-dirs.sh` enforces mechanically,
+at push time, that every `${APP_DATA_DIR}` bind-mount source this compose
+declares is shipped as a committed directory in the app template.
 
 The ORDERING is the load-bearing half: the volume and the disk-writing image ship
 together. Volume-first (before the writing image) declares storage nothing uses;
@@ -264,3 +286,69 @@ configuration to the data volume and reads it at runtime (at which point the
 subnet moves there and this entry is reconsidered), or umbrelOS gains a native
 per-app settings mechanism that survives updates, or umbreld begins passing a
 persistent `--env-file` to community-app compose.
+
+---
+
+## 8. The app template ships `data/.gitkeep`; the bind-mount source is never created by an on-box hook
+
+**Statement.** `pipfox-miner-fleet/data/.gitkeep` is a committed, empty file. Its
+sole purpose is to force git — and, downstream, this repo's rsync-based app
+template — to carry a `data/` directory alongside `docker-compose.yml`, so that
+`${APP_DATA_DIR}/data` (entry 6's bind-mount source) exists, owned `1000:1000`,
+before the `server` container ever starts. No on-box script, hook, or chown is
+used to create or fix the ownership of this directory.
+
+**Why.** `getumbrel/umbrel` apps.ts `install()` materialises a fresh install's
+app-data directory by `rsync --archive --exclude ".gitkeep" <template>/.
+<app-data-dir>` and does nothing else to it — it does not pre-create arbitrary
+subdirectories, and it has no chown for this app's data path. So a subdirectory
+a compose file declares as a bind-mount source exists after install if and only
+if the store repo ships it inside the app template; otherwise Docker creates it
+`root:root` at `compose up`, and the hardened container (uid 1000, `cap_drop:
+ALL`, `no-new-privileges:true`) cannot write into it — `SQLITE_CANTOPEN`
+(errcode 14), crash loop, on every fresh install. This was verified, not
+assumed: a falsification sweep of `getumbrel/umbrel-apps` found 332 of 333 apps
+mounting `${APP_DATA_DIR}/data` ship a committed `data/.gitkeep`, matching this
+mechanism. `scripts/check-bind-mount-dirs.sh` now enforces the invariant
+mechanically — this entry records the choice among the alternatives that
+mechanism forecloses:
+
+- **(a) Mount `${APP_DATA_DIR}` itself as `/data`, rather than the `data`
+  subdirectory beneath it — REJECTED.** It would work: the app-data root is the
+  directory umbreld itself creates and owns, so it is writable with no
+  extra step. It is rejected because `${APP_DATA_DIR}` also holds
+  `docker-compose.yml` and `umbrel-app.yml` — the exact files umbreld reads to
+  run this app — so mounting the root exposes umbreld's own control files to a
+  writable mount inside the container. A compromised container could rewrite
+  its own compose file or manifest and escalate on the app's next restart. The
+  `data` subdirectory carries no such file, so mounting only it keeps the
+  container's write access scoped to state it actually owns.
+- **(b) A `hooks/pre-start` script doing `mkdir -p` + `chown -R 1000:1000` on
+  the box — REJECTED.** This is a real, shipped upstream pattern — the single
+  exception in the 333-app sweep (`file-drop`) uses exactly this — and it has a
+  genuine advantage a committed directory does not: it would SELF-HEAL an
+  existing box already caught by this bug, where a static `data/.gitkeep`
+  cannot retroactively fix a `root:root` directory Docker already created. It
+  is rejected anyway because it hands umbreld a host-side script that this
+  PUBLIC repo would run AS ROOT on every app start, which cuts directly against
+  the hardening posture the rest of this file establishes (digest pinning,
+  `cap_drop: ALL`, `no-new-privileges:true`) — for the sake of repairing an
+  install base of roughly one box, which a documented one-off `chown`
+  (DEPLOY.md § 4) already recovers without any code running on the box at all.
+
+No `version` bump accompanies this fix. `data/` is not in umbreld's
+`legacy-compat/app-script` update whitelist
+(`UPDATE_FILES_WHITELIST_PRE`/`_POST`), so an app UPDATE never touches it —
+bumping `version` would deliver nothing to an already-broken box, while also
+obligating a content-identical `0.2.1` miner-fleet image re-release purely to
+keep `scripts/check-version-drift.sh` green. A fresh install or a reinstall
+rsyncs whatever this repo currently holds, so it gets the fix with no version
+change at all; an already-broken box is repaired by the manual `chown` in
+DEPLOY.md § 4, not by an update.
+
+**Revisit if.** umbreld starts pre-creating declared bind-mount sources itself
+(verify against its source, not by observing a deployment that happened to
+work), or the install base grows past the point where a documented one-off
+`chown` is a reasonable recovery for an already-broken box, or umbrelOS gains a
+first-class per-app data-permission mechanism that makes either rejected option
+above safe to adopt.

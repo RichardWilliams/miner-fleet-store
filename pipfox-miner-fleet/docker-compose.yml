@@ -28,10 +28,14 @@ services:
     # beyond that. It already runs as a non-root user (uid 1000, the node:alpine
     # `node` account) baked into the image; these two make privilege ESCALATION
     # unavailable rather than merely unused. Neither affects outbound TCP/HTTP,
-    # which is all the app needs. uid 1000 also matches umbreld's 1000:1000
-    # app-data ownership, which is what lets the volume below be writable with
-    # cap_drop: ALL and no chown (see miner-fleet's docker/Dockerfile and its own
-    # DECISIONS.md entry 12 — the sibling repo, not this store's DECISIONS.md).
+    # which is all the app needs. uid 1000 matches the ownership the volume below
+    # actually gets: the app TEMPLATE ships `data/.gitkeep`, so umbreld's install
+    # rsync creates ${APP_DATA_DIR}/data owned 1000:1000 (see miner-fleet's
+    # docker/Dockerfile and its own DECISIONS.md entry 12 — the sibling repo, not
+    # this store's DECISIONS.md — for the image's uid). That is what lets the
+    # volume be writable with cap_drop: ALL and no chown; see the volume's own
+    # comment below and DECISIONS.md entry 6 for why umbreld does not do this on
+    # its own.
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -61,12 +65,26 @@ services:
     # compose environment; the ${UMBREL_ROOT}/app-data/${app} contract is cited in
     # the sibling miner-fleet repo (its DECISIONS entry 12 / runtimeConfig.ts) —
     # referenced rather than re-pinned here because the upstream line numbers drift.
-    # The shipped-app precedent is vaultwarden's ${APP_DATA_DIR}/data:/data. This
-    # directory SURVIVES app updates and is removed only on UNINSTALL (umbreld's
-    # update copies the app files over a whitelist that never includes data/;
-    # uninstall removes the data dir). See DECISIONS.md entry 6. The image runs as uid/gid 1000:1000 and
-    # umbreld owns the bind-mount source 1000:1000, so the container writes here
-    # under cap_drop: ALL + no-new-privileges with no root chown.
+    # The shipped-app precedent is vaultwarden's ${APP_DATA_DIR}/data:/data, and
+    # specifically its committed `data/.gitkeep` — NOT the `user: "1000:1000"`
+    # line beside it, which has no bearing on how Docker creates a MISSING
+    # bind-mount source. This directory SURVIVES app updates and is removed only
+    # on UNINSTALL (umbreld's update copies the app files over a whitelist that
+    # never includes data/; uninstall removes the data dir). See DECISIONS.md
+    # entry 6.
+    #
+    # umbreld does NOT pre-create this bind-mount source on its own. On a fresh
+    # install it materialises app-data ONLY by rsyncing the app TEMPLATE into it
+    # (`rsync --archive --exclude ".gitkeep" <template>/. <app-data-dir>`,
+    # `getumbrel/umbrel` apps.ts install()) — so the sibling
+    # `pipfox-miner-fleet/data/.gitkeep` this repo ships is what makes
+    # ${APP_DATA_DIR}/data exist, owned 1000:1000, before the container ever
+    # starts. Deleting that file does NOT make the directory "already exist
+    # anyway" — it silently reintroduces the bug this comment used to hide:
+    # Docker creates the missing source root:root at `compose up`, and the
+    # uid-1000, cap_drop: ALL container cannot write into it.
+    # scripts/check-bind-mount-dirs.sh enforces this mechanically at push time —
+    # read it before touching `data/.gitkeep` or this volume line.
     volumes:
       - ${APP_DATA_DIR}/data:/data
 
