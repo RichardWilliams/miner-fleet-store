@@ -457,6 +457,41 @@ root="$(make_fixture nested_key_named_network_mode 'services:
       network_mode: "not real networking"')"
 run_case 'scoping: a nested environment entry literally named network_mode passes' 0 "$root" 'OK: server drops ALL capabilities'
 
+# UNSCOPED DUPLICATE-COUNT MATCH (K1). The same class of defect as J2 above,
+# but inside collect_sequence()'s own duplicate-key detection rather than the
+# network_mode/ports negative checks: a nested `environment:` entry merely
+# NAMED `cap_drop` or `security_opt` must not be counted as a second
+# occurrence of the real directive and false-BLOCK a compliant file.
+root="$(make_fixture nested_key_named_cap_drop 'services:
+  app_proxy:
+    environment:
+      APP_HOST: pipfox-miner-fleet_server_1
+
+  server:
+    image: example/app:1.0.0
+    environment:
+      cap_drop: "an env var that merely shares the name"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL')"
+run_case 'scoping: a nested environment entry literally named cap_drop passes' 0 "$root" 'OK: server drops ALL capabilities'
+
+root="$(make_fixture nested_key_named_security_opt 'services:
+  app_proxy:
+    environment:
+      APP_HOST: pipfox-miner-fleet_server_1
+
+  server:
+    image: example/app:1.0.0
+    environment:
+      security_opt: "an env var that merely shares the name"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true')"
+run_case 'scoping: a nested environment entry literally named security_opt passes' 0 "$root" 'OK: server drops ALL capabilities'
+
 # The mirror direction: a REAL network_mode/ports directive at the server's own
 # directive-level indent must still FAIL. This is the same fixture shape as the
 # two pre-existing "negative:" cases above; repeated here beside the scoping

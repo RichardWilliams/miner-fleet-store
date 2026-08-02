@@ -134,18 +134,31 @@ if (( ${#server_lines[@]} == 0 )); then
   fail "the '${SERVICE}' service in ${APP_ID}/docker-compose.yml declares no directives, so this check verified nothing."
 fi
 
+# The server service's OWN directive-level indent: the indent of the first
+# line collected into server_lines, which by construction is the first
+# directive key directly under `server:`. Computed once, here, and reused by
+# both collect_sequence() below and the network_mode/ports negative checks
+# further down — so a deeper-nested key that merely CONTAINS one of those
+# names (e.g. an `environment:` entry literally named `cap_drop`) is never
+# mistaken for the real directive.
+directive_indent="${server_indents[0]}"
+
 # Collect the block-sequence entries declared under <key> on the server service
 # into `sequence_items`. Returns non-zero when the key is absent; refuses
 # outright when the key carries an inline value this check does not parse.
 #
-# DUPLICATE KEYS. A second occurrence of `<key>:` anywhere in the server block
+# DUPLICATE KEYS. A second occurrence of `<key>:` AT THE DIRECTIVE-LEVEL INDENT
 # (block form or inline flow form) is ambiguous input, not a value to resolve:
 # YAML's own last-key-wins semantics would silently pick the LAST occurrence,
 # and this check does not reproduce that. It fails closed instead — same house
 # posture as scripts/check-version-drift.sh's require_exactly_one. The count is
 # taken BEFORE any collection so an inline-flow duplicate is caught by name too,
 # and so this cannot be satisfied by the first (possibly hardened) copy alone
-# while a second, unhardened copy is silently aggregated in.
+# while a second, unhardened copy is silently aggregated in. Both the count and
+# the search below are scoped to directive_indent: unscoped, a nested mapping
+# key elsewhere in the server block that merely shares the literal name (e.g.
+# an `environment:` entry named `cap_drop`) would count as a second occurrence
+# of the real directive and false-BLOCK a compliant file.
 sequence_items=()
 collect_sequence() {
   local key="$1"
@@ -153,6 +166,7 @@ collect_sequence() {
   sequence_items=()
 
   for (( i = 0; i < ${#server_lines[@]}; i++ )); do
+    (( server_indents[i] != directive_indent )) && continue
     if [[ "${server_lines[$i]}" =~ ^[[:space:]]*${key}:[[:space:]]*$ ]] \
       || [[ "${server_lines[$i]}" =~ ^[[:space:]]*${key}:[[:space:]]*[^[:space:]] ]]; then
       key_occurrences=$(( key_occurrences + 1 ))
@@ -164,6 +178,7 @@ collect_sequence() {
 
   for (( i = 0; i < ${#server_lines[@]}; i++ )); do
     if (( key_indent < 0 )); then
+      (( server_indents[i] != directive_indent )) && continue
       if [[ "${server_lines[$i]}" =~ ^[[:space:]]*${key}:[[:space:]]*$ ]]; then
         key_indent="${server_indents[$i]}"
       elif [[ "${server_lines[$i]}" =~ ^[[:space:]]*${key}:[[:space:]]*[^[:space:]] ]]; then
@@ -199,15 +214,12 @@ collect_sequence security_opt \
 sequence_contains 'no-new-privileges:true' \
   || fail "the ${SERVICE} service's 'security_opt:' does not set no-new-privileges:true in ${APP_ID}/docker-compose.yml — it lists '${sequence_items[*]}'. Restore it (DECISIONS.md entry 6)."
 
-# Scoped to the server service's OWN directive-level indent — the indent of
-# the first line collected into server_lines, which by construction is the
-# first directive key directly under `server:` (the same technique
-# collect_sequence uses one level up, via key_indent). Unscoped, these checks
-# would trip on a deeper-nested key that merely CONTAINS one of these names
-# (e.g. an `environment:` entry literally named `ports`), false-FAILing a
-# compliant file on a diagnostic that misdirects toward a networking
-# regression that does not exist.
-directive_indent="${server_indents[0]}"
+# Scoped to the server service's OWN directive-level indent — directive_indent,
+# computed once above and already reused by collect_sequence()'s own duplicate
+# detection. Unscoped, these checks would trip on a deeper-nested key that
+# merely CONTAINS one of these names (e.g. an `environment:` entry literally
+# named `ports`), false-FAILing a compliant file on a diagnostic that
+# misdirects toward a networking regression that does not exist.
 for (( i = 0; i < ${#server_lines[@]}; i++ )); do
   line="${server_lines[$i]}"
   (( server_indents[i] != directive_indent )) && continue
