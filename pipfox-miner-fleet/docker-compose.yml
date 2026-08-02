@@ -65,26 +65,20 @@ services:
     # compose environment; the ${UMBREL_ROOT}/app-data/${app} contract is cited in
     # the sibling miner-fleet repo (its DECISIONS entry 12 / runtimeConfig.ts) —
     # referenced rather than re-pinned here because the upstream line numbers drift.
-    # The shipped-app precedent is vaultwarden's ${APP_DATA_DIR}/data:/data, and
-    # specifically its committed `data/.gitkeep` — NOT the `user: "1000:1000"`
-    # line beside it, which has no bearing on how Docker creates a MISSING
-    # bind-mount source. This directory SURVIVES app updates and is removed only
-    # on UNINSTALL (umbreld's update copies the app files over a whitelist that
-    # never includes data/; uninstall removes the data dir). See DECISIONS.md
-    # entry 6.
+    # This directory SURVIVES app updates and is removed only on UNINSTALL
+    # (umbreld's update copies the app files over a whitelist that never includes
+    # data/; uninstall removes the data dir). See DECISIONS.md entry 6.
     #
-    # umbreld does NOT pre-create this bind-mount source on its own. On a fresh
-    # install it materialises app-data ONLY by rsyncing the app TEMPLATE into it
-    # (`rsync --archive --exclude ".gitkeep" <template>/. <app-data-dir>`,
-    # `getumbrel/umbrel` apps.ts install()) — so the sibling
-    # `pipfox-miner-fleet/data/.gitkeep` this repo ships is what makes
-    # ${APP_DATA_DIR}/data exist, owned 1000:1000, before the container ever
-    # starts. Deleting that file does NOT make the directory "already exist
-    # anyway" — it silently reintroduces the bug this comment used to hide:
-    # Docker creates the missing source root:root at `compose up`, and the
-    # uid-1000, cap_drop: ALL container cannot write into it.
-    # scripts/check-bind-mount-dirs.sh enforces this mechanically at push time —
-    # read it before touching `data/.gitkeep` or this volume line.
+    # The operative rule for anyone editing this file: the sibling
+    # `pipfox-miner-fleet/data/.gitkeep` is what makes this bind-mount source
+    # exist, owned 1000:1000, before the container ever starts. Delete it and
+    # Docker creates the source root:root at `compose up` instead, which the
+    # uid-1000, cap_drop: ALL container cannot write into — a silent crash loop
+    # on every fresh install. `scripts/check-bind-mount-dirs.sh` enforces this
+    # mechanically at push time. DECISIONS.md entry 8 is the single source of
+    # truth for the underlying mechanism and the evidence for it (umbreld's
+    # install rsync, and the falsification sweep of `getumbrel/umbrel-apps`) —
+    # read it there rather than here, and correct it there if it is ever wrong.
     volumes:
       - ${APP_DATA_DIR}/data:/data
 

@@ -309,9 +309,12 @@ ALL`, `no-new-privileges:true`) cannot write into it — `SQLITE_CANTOPEN`
 (errcode 14), crash loop, on every fresh install. This was verified, not
 assumed: a falsification sweep of `getumbrel/umbrel-apps` found 332 of 333 apps
 mounting `${APP_DATA_DIR}/data` ship a committed `data/.gitkeep`, matching this
-mechanism. `scripts/check-bind-mount-dirs.sh` now enforces the invariant
-mechanically — this entry records the choice among the alternatives that
-mechanism forecloses:
+mechanism. Re-derivable method, run 2026-08-02: shallow-clone
+`getumbrel/umbrel-apps`, select every app directory whose `docker-compose.yml`
+declares an `${APP_DATA_DIR}/data` bind mount, and check whether that same app
+directory ships a committed `data/` directory. `scripts/check-bind-mount-dirs.sh`
+now enforces the invariant mechanically — this entry records the choice among
+the alternatives that mechanism forecloses:
 
 - **(a) Mount `${APP_DATA_DIR}` itself as `/data`, rather than the `data`
   subdirectory beneath it — REJECTED.** It would work: the app-data root is the
@@ -344,7 +347,12 @@ obligating a content-identical `0.2.1` miner-fleet image re-release purely to
 keep `scripts/check-version-drift.sh` green. A fresh install or a reinstall
 rsyncs whatever this repo currently holds, so it gets the fix with no version
 change at all; an already-broken box is repaired by the manual `chown` in
-DEPLOY.md § 4, not by an update.
+DEPLOY.md § 4, not by an update. The `chown` and a reinstall are not
+equivalent-cost recoveries for a box that already has state: `chown` preserves
+it, while `reinstall` runs `uninstall` first, and `uninstall` removes the whole
+app-data directory (`app.ts`: `fse.remove(this.dataDirectory)`) — destroying the
+inventory/telemetry SQLite history and the operator's `config.env` (entry 7)
+before `install` re-creates it from the template. DEPLOY.md § 4 states this.
 
 **Revisit if.** umbreld starts pre-creating declared bind-mount sources itself
 (verify against its source, not by observing a deployment that happened to

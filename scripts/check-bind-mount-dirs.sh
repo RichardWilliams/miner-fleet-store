@@ -61,8 +61,12 @@ fail() {
 }
 
 # Guard order: required files before any parsing, so a missing file produces a
-# clear diagnostic rather than an empty-match error further down.
+# clear diagnostic rather than an empty-match error further down. Readability is
+# checked separately from existence: an unreadable file would otherwise fall
+# through to the zero-declared-lines check below and report a misleading "no
+# declaration found" when the real cause is a permission problem.
 [[ -f "$compose" ]] || fail "compose file not found at ${compose}"
+[[ -r "$compose" ]] || fail "compose file not readable at ${compose}"
 
 # The literal token, for the `grep -F` collection and for diagnostics. The `$`
 # is escaped so bash yields the token itself rather than the value of a variable
@@ -83,8 +87,10 @@ readonly TRAILING_ERE='[[:space:]]*(#.*)?$'
 readonly SUBPATH_ERE='[[:alnum:]._-]+(/[[:alnum:]._-]+)*'
 readonly COMMENT_LINE_ERE='^[[:space:]]*#'
 
-# Shape 1 — short-form volume entry: `- ${APP_DATA_DIR}/<host>:<container>`.
-# Capture group 1 is the host-side subpath: by construction the text between the
+# Shape 1 — short-form volume entry: `- ${APP_DATA_DIR}/<host>:<container>`,
+# optionally wrapped in matching quotes around the WHOLE "host:container" pair
+# and optionally suffixed with a trailing `:ro` / `:rw` mount mode. Capture
+# group 1 is the host-side subpath: by construction the text between the
 # `${APP_DATA_DIR}/` prefix this pattern anchored on and the `:` that separates
 # host side from container side.
 #
@@ -97,7 +103,20 @@ readonly COMMENT_LINE_ERE='^[[:space:]]*#'
 # on real drift. This line carries the same hazard (a `${APP_DATA_DIR}`-shaped
 # path is exactly the kind of thing a comment beside it quotes) and the same
 # rule applies.
-readonly VOLUME_ERE="${LIST_ITEM_ERE}${APP_DATA_ERE}/([^[:space:]:]*):(/[^[:space:]:]*)${TRAILING_ERE}"
+#
+# Quote handling is an alternation of THREE WHOLE FORMS — unquoted, the pair
+# wrapped in double quotes, the pair wrapped in single quotes — never two
+# independently optional quote marks. check-version-drift.sh's own comment
+# states why: `['\"]?VALUE['\"]?` would accept a MISMATCHED pair (e.g.
+# `"${APP_DATA_DIR}/data:/data'`), which is not valid YAML, and POSIX ERE has no
+# backreference to require the closing quote match the opening one. All three
+# forms are legal Compose short-syntax volume entries and all three are common —
+# a gate that blocks a valid quoted mount is as much a defect as one that misses
+# a real drift.
+readonly MOUNT_MODE_ERE='(:(ro|rw))?'
+readonly VOLUME_ERE_UNQUOTED="${LIST_ITEM_ERE}${APP_DATA_ERE}/([^[:space:]:\"']*):(/[^[:space:]:\"']*)${MOUNT_MODE_ERE}${TRAILING_ERE}"
+readonly VOLUME_ERE_DQUOTED="${LIST_ITEM_ERE}\"${APP_DATA_ERE}/([^[:space:]:\"']*):(/[^[:space:]:\"']*)${MOUNT_MODE_ERE}\"${TRAILING_ERE}"
+readonly VOLUME_ERE_SQUOTED="${LIST_ITEM_ERE}'${APP_DATA_ERE}/([^[:space:]:\"']*):(/[^[:space:]:\"']*)${MOUNT_MODE_ERE}'${TRAILING_ERE}"
 
 # Shape 2 — long-form `env_file` path entry: `- path: ${APP_DATA_DIR}/<...>`.
 readonly ENV_FILE_ERE="${LIST_ITEM_ERE}path:[[:space:]]+${APP_DATA_ERE}/[^[:space:]]+${TRAILING_ERE}"
@@ -135,11 +154,24 @@ host_subpaths=()
 source_lines=()
 
 for line in "${declared_lines[@]}"; do
-  if [[ "$line" =~ $VOLUME_ERE ]]; then
+  if [[ "$line" =~ $VOLUME_ERE_UNQUOTED ]] || [[ "$line" =~ $VOLUME_ERE_DQUOTED ]] || [[ "$line" =~ $VOLUME_ERE_SQUOTED ]]; then
     subpath="${BASH_REMATCH[1]}"
     if [[ ! "$subpath" =~ ^${SUBPATH_ERE}$ ]]; then
       fail "unusable host-side subpath '${subpath}' extracted from ${APP_ID}/docker-compose.yml line '${line}' — expected a relative path of name segments. A subpath this check cannot resolve to a repo path is a failure, not a skip."
     fi
+    # `.` and `..` segments pass SUBPATH_ERE's character class (both characters
+    # are in it) but are not name segments — they are relative-path navigation.
+    # `${APP_DATA_DIR}/../evil/data` would otherwise validate and then be
+    # concatenated into `target` below with no containment check, resolving
+    # OUTSIDE this app's own directory. Reject any such segment explicitly
+    # rather than relying on the character class to exclude it, so containment
+    # holds regardless of how the path is spelled.
+    IFS='/' read -r -a subpath_segments <<< "$subpath"
+    for segment in "${subpath_segments[@]}"; do
+      if [[ "$segment" == "." || "$segment" == ".." ]]; then
+        fail "unusable host-side subpath '${subpath}' extracted from ${APP_ID}/docker-compose.yml line '${line}' — segment '${segment}' is a relative-path navigation component, not a name; it could resolve outside ${APP_ID}. A subpath this check cannot resolve safely to a repo path is a failure, not a skip."
+      fi
+    done
     host_subpaths+=("$subpath")
     source_lines+=("$line")
     continue

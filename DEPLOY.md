@@ -173,10 +173,22 @@ not something an app update can do for you: `data/` is outside umbreld's
 update whitelist (the `legacy-compat/app-script` file list that an update
 actually touches never includes it), so no version of this store can push a fix
 into that directory on an already-installed box — only a shell command you run
-yourself can. A **fresh install or a full reinstall** does not need this step:
-umbreld's install rsync copies the app template — including the `data/`
-directory this repo now ships — so `${APP_DATA_DIR}/data` is created
-`1000:1000` from the start, and the app writes to it immediately.
+yourself can.
+
+The `chown` above is the recovery that PRESERVES your existing state. **Do not
+"fix" this by reinstalling the app instead.** `reinstall` runs `uninstall`
+then `install` (`getumbrel/umbrel` `legacy-compat/app-script`), and `uninstall`
+REMOVES the whole app-data directory first (`app.ts`: `fse.remove(this.dataDirectory)`)
+before `install` re-creates it from the template. That does repair the
+ownership — but it also destroys your discovered-miner inventory and telemetry
+history, and the `config.env` subnet file you created under `data/` (§ 6,
+DECISIONS.md entry 7), which you would then have to re-enter. Reinstalling is
+not a costless alternative to the `chown` above.
+
+A genuinely **fresh install** — a box that never had this app before — does not
+need this step at all: umbreld's install rsync copies the app template —
+including the `data/` directory this repo now ships — so `${APP_DATA_DIR}/data`
+is created `1000:1000` from the start, and the app writes to it immediately.
 
 ---
 

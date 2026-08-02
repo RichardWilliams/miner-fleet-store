@@ -308,5 +308,121 @@ root="$(make_fixture empty_subpath "services:
 mkdir -p "${root}/${APP_ID}/data"
 assert_case 'malformed: empty host subpath fails closed' 1 "$root" 'unusable host-side subpath'
 
+# ---------------------------------------------------------------------------
+# Case — PATH TRAVERSAL. A `..` (or `.`) path segment passes SUBPATH_ERE's
+# character class — both characters are in it — but is relative-path
+# navigation, not a name, and would otherwise be concatenated into `target`
+# with no containment check: `${APP_DATA_DIR}/../evil/data` would resolve
+# OUTSIDE this app's own directory and the check would print OK for a path it
+# never actually verified. Both a leading `..` segment and an embedded `.`
+# segment must fail closed, and shipping the directory the traversal points at
+# must not make it pass — the segment itself is the defect, not whether
+# something happens to exist there.
+# ---------------------------------------------------------------------------
+root="$(make_fixture traversal_dotdot "services:
+  server:
+    image: example/app:1.0.0
+    volumes:
+      - \${APP_DATA_DIR}/../evil/data:/data")"
+mkdir -p "${root}/evil/data"
+assert_case 'traversal: leading .. segment fails closed even when the escape target exists' 1 "$root" "segment '..'"
+
+root="$(make_fixture traversal_dot "services:
+  server:
+    image: example/app:1.0.0
+    volumes:
+      - \${APP_DATA_DIR}/data/./sub:/data")"
+mkdir -p "${root}/${APP_ID}/data/sub"
+assert_case 'traversal: embedded . segment fails closed' 1 "$root" "segment '.'"
+
+# ---------------------------------------------------------------------------
+# Case — QUOTED VOLUME ENTRIES. `- "${APP_DATA_DIR}/data:/data"` and the
+# single-quoted spelling are legal, common Compose short-syntax; a check that
+# false-BLOCKS them is as much a defect as one that misses a real drift
+# (check-version-drift.sh's own governing principle). Both quote styles must
+# pass when the directory is shipped, and a MISMATCHED pair — enumerating three
+# whole forms rather than two independently optional quote marks is exactly
+# what rules this out — must still fail closed rather than being accepted as
+# "close enough".
+# ---------------------------------------------------------------------------
+readonly COMPOSE_DQUOTED="services:
+  server:
+    image: example/app:1.0.0
+    volumes:
+      - \"\${APP_DATA_DIR}/data:/data\""
+root="$(make_fixture quoted_double "$COMPOSE_DQUOTED")"
+mkdir -p "${root}/${APP_ID}/data"
+assert_case 'quoted: double-quoted whole mapping passes' 0 "$root" "OK: every declared app-data bind-mount source is shipped: ${APP_ID}/data"
+
+readonly COMPOSE_SQUOTED="services:
+  server:
+    image: example/app:1.0.0
+    volumes:
+      - '\${APP_DATA_DIR}/data:/data'"
+root="$(make_fixture quoted_single "$COMPOSE_SQUOTED")"
+mkdir -p "${root}/${APP_ID}/data"
+assert_case 'quoted: single-quoted whole mapping passes' 0 "$root" "OK: every declared app-data bind-mount source is shipped: ${APP_ID}/data"
+
+readonly COMPOSE_MISMATCHED_QUOTES="services:
+  server:
+    image: example/app:1.0.0
+    volumes:
+      - \"\${APP_DATA_DIR}/data:/data'"
+root="$(make_fixture quoted_mismatched "$COMPOSE_MISMATCHED_QUOTES")"
+mkdir -p "${root}/${APP_ID}/data"
+assert_case 'quoted: mismatched opening/closing quotes fails closed' 1 "$root" "unrecognised \${APP_DATA_DIR} line shape"
+
+# ---------------------------------------------------------------------------
+# Case — MOUNT MODE SUFFIX. `:ro` and `:rw` are legal trailing Compose mount
+# modes; the container-side capture excludes `:` so a future read-only mount
+# must not break the gate on day one.
+# ---------------------------------------------------------------------------
+readonly COMPOSE_RO="services:
+  server:
+    image: example/app:1.0.0
+    volumes:
+      - \${APP_DATA_DIR}/config:/config:ro"
+root="$(make_fixture mode_ro "$COMPOSE_RO")"
+mkdir -p "${root}/${APP_ID}/config"
+assert_case 'mode: :ro suffix passes' 0 "$root" "OK: every declared app-data bind-mount source is shipped: ${APP_ID}/config"
+
+readonly COMPOSE_RW="services:
+  server:
+    image: example/app:1.0.0
+    volumes:
+      - \${APP_DATA_DIR}/data:/data:rw"
+root="$(make_fixture mode_rw "$COMPOSE_RW")"
+mkdir -p "${root}/${APP_ID}/data"
+assert_case 'mode: :rw suffix passes' 0 "$root" "OK: every declared app-data bind-mount source is shipped: ${APP_ID}/data"
+
+# A mode suffix combined with a quoted mapping must also resolve — the two
+# behaviours are independent and the fixture proves neither one masks a defect
+# in the other.
+readonly COMPOSE_QUOTED_RO="services:
+  server:
+    image: example/app:1.0.0
+    volumes:
+      - \"\${APP_DATA_DIR}/config:/config:ro\""
+root="$(make_fixture mode_ro_quoted "$COMPOSE_QUOTED_RO")"
+mkdir -p "${root}/${APP_ID}/config"
+assert_case 'mode: :ro suffix inside a double-quoted mapping passes' 0 "$root" "OK: every declared app-data bind-mount source is shipped: ${APP_ID}/config"
+
+# The mode suffix must not be usable to smuggle a directory-missing mount past
+# the check — a shipped-directory assertion still fires with the suffix present.
+root="$(make_fixture mode_ro_missing "$COMPOSE_RO")"
+assert_case 'mode: :ro suffix does not mask a missing bind-mount source' 1 "$root" "${APP_ID}/config does not exist"
+
+# ---------------------------------------------------------------------------
+# Case — UNREADABLE COMPOSE FILE. Distinct from the missing-file case: the
+# guard order puts existence before readability so an unreadable (not absent)
+# file names the real cause rather than falling through to the misleading
+# zero-declared-lines diagnostic.
+# ---------------------------------------------------------------------------
+root="$(make_fixture unreadable_compose "$COMPOSE_SIMPLE")"
+mkdir -p "${root}/${APP_ID}/data"
+chmod 000 "${root}/${APP_ID}/docker-compose.yml"
+assert_case 'unreadable: permission-denied compose file fails closed with the real cause' 1 "$root" 'compose file not readable'
+chmod 644 "${root}/${APP_ID}/docker-compose.yml"
+
 printf '\n%d passed, %d failed\n' "$passes" "$failures"
 (( failures == 0 )) || exit 1
