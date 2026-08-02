@@ -19,15 +19,19 @@ services:
     # DEPLOY.md names this line as one of the two edit sites.
     # The image NAME is also hardcoded in scripts/check-version-drift.sh — see
     # that file's IMAGE_NAME_ERE for why both sites move together.
-    image: ghcr.io/richardwilliams/miner-fleet:0.1.0@sha256:da0e81a0f568255bd6dac6f12274c9aec88661bba9a49057cfb57b5974e74c01
+    image: ghcr.io/richardwilliams/miner-fleet:0.2.0@sha256:83de64211b8e6b0293df25fa718d387f5a07e8c841da80b5792213461f3d50ab
     restart: on-failure
     stop_grace_period: 1m
 
     # Defense in depth. The app dials arbitrary LAN addresses to reach the
     # miners, so it is worth constraining what a compromised process could do
-    # beyond that. It already runs as a non-root user (uid 1001) baked into the
-    # image; these two make privilege ESCALATION unavailable rather than merely
-    # unused. Neither affects outbound TCP/HTTP, which is all the app needs.
+    # beyond that. It already runs as a non-root user (uid 1000, the node:alpine
+    # `node` account) baked into the image; these two make privilege ESCALATION
+    # unavailable rather than merely unused. Neither affects outbound TCP/HTTP,
+    # which is all the app needs. uid 1000 also matches umbreld's 1000:1000
+    # app-data ownership, which is what lets the volume below be writable with
+    # cap_drop: ALL and no chown (see miner-fleet's docker/Dockerfile and its own
+    # DECISIONS.md entry 12 — the sibling repo, not this store's DECISIONS.md).
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -49,7 +53,36 @@ services:
     # container already reaches arbitrary LAN addresses outbound, which is what
     # sweeping the miners' HTTP API needs; host networking would additionally
     # cost the app_proxy auth layer in front of the app.
-    #
-    # No volumes. The application is stateless at this version — it has no
-    # database and writes nothing it needs to survive a restart. Storage is
-    # declared by the change that introduces it, alongside the code that uses it.
+
+    # Persistent data volume (DECISIONS.md entry 6). The app writes its SQLite
+    # inventory + telemetry samples under its container-side data dir, default
+    # /data (miner-fleet src/config/runtimeConfig.ts, MINER_FLEET_DATA_DIR).
+    # ${APP_DATA_DIR} is the HOST-side app-data directory umbreld exports into the
+    # compose environment; the ${UMBREL_ROOT}/app-data/${app} contract is cited in
+    # the sibling miner-fleet repo (its DECISIONS entry 12 / runtimeConfig.ts) —
+    # referenced rather than re-pinned here because the upstream line numbers drift.
+    # The shipped-app precedent is vaultwarden's ${APP_DATA_DIR}/data:/data. This
+    # directory SURVIVES app updates and is removed only on UNINSTALL (umbreld's
+    # update copies the app files over a whitelist that never includes data/;
+    # uninstall removes the data dir). See DECISIONS.md entry 6. The image runs as uid/gid 1000:1000 and
+    # umbreld owns the bind-mount source 1000:1000, so the container writes here
+    # under cap_drop: ALL + no-new-privileges with no root chown.
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+
+    # Operator subnet configuration, delivered so it NEVER enters this PUBLIC repo
+    # (DECISIONS.md entry 7; codespace RULE #1 — a real LAN range must never be
+    # committed). Discovery auto-derives the sweep range from the container's OWN
+    # address, which on Umbrel is the docker app-network, NOT the operator's LAN,
+    # so the fleet stays EMPTY until MINER_FLEET_SUBNETS is set (the app reads it
+    # from the environment; miner-fleet src/config/runtimeConfig.ts SUBNETS_ENV).
+    # umbreld passes a community-app compose NO --env-file and exports no custom
+    # vars, so a value here could only be a literal — which either commits the
+    # range (RULE #1) or is reset on every update (umbreld replaces this compose
+    # on update). Reading it from a file the operator creates INSIDE the data
+    # volume avoids both: the file lives on the box, survives updates, and is
+    # never committed. required:false so a fresh install with no file yet starts
+    # cleanly (empty fleet) instead of failing. Operator setup: DEPLOY.md § 6.
+    env_file:
+      - path: ${APP_DATA_DIR}/data/config.env
+        required: false

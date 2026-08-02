@@ -3,7 +3,7 @@ id: pipfox-miner-fleet
 name: Miner Fleet
 tagline: Manage your Bitaxe and NerdQAxe++ miners from one dashboard
 category: bitcoin
-version: "0.1.0"
+version: "0.2.0"
 port: 3007
 description: >-
   Miner Fleet is a self-hosted manager for open-source Bitcoin ASIC miners
@@ -25,12 +25,20 @@ description: >-
   This release is an early one: it ships the service, its health endpoint and its
   packaging. Discovery, telemetry and rollout arrive in subsequent releases.
 releaseNotes: >-
-  First packaged release.
+  The fleet is live. This release turns the skeleton into a working manager: it
+  discovers your Bitaxe / NerdQAxe++ boards on the network, polls their
+  telemetry, and shows hashrate, temperature, power and shares on one dashboard.
 
 
-  This version establishes the app itself — the container, its health endpoint
-  and the Umbrel integration. It is intended for installing and confirming the
-  app runs on your machine; fleet functionality is not in this release.
+  Its inventory and samples are now stored in a persistent data volume, so they
+  survive app updates (an uninstall still clears them).
+
+
+  ONE SETUP STEP on first run: with no subnet set, discovery sweeps the app's own
+  Docker network instead of your LAN and quietly finds nothing, so set your subnet
+  once. Create app-data/pipfox-miner-fleet/data/config.env on your Umbrel and add a
+  line like MINER_FLEET_SUBNETS=192.168.1.0/24 (your real range), then restart the
+  app. Full steps, and what to check if the fleet stays empty, are in DEPLOY.md § 6.
 developer: Pipfox
 submitter: Pipfox
 website: https://github.com/RichardWilliams/miner-fleet-store
