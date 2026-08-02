@@ -336,6 +336,33 @@ mkdir -p "${root}/${APP_ID}/data/sub"
 assert_case 'traversal: embedded . segment fails closed' 1 "$root" "segment '.'"
 
 # ---------------------------------------------------------------------------
+# Case — SYMLINK ESCAPE. `.`/`..` are rejected in the compose STRING (above),
+# but `[[ -e ]]` and `[[ -d ]]` both FOLLOW symlinks, so a component of the
+# resolved target that is committed as a symlink can point outside this app's
+# directory without the subpath ever containing a traversal segment. This
+# matters because `rsync --archive` (DECISIONS.md entry 8) ships symlinks AS
+# symlinks, so a symlink shipped at the bind-mount source reproduces on the box
+# unchanged and Docker resolves it at mount time. Both the LEAF and an
+# INTERMEDIATE component under a nested subpath must fail closed — checking
+# only the leaf misses an escape through an intermediate component of a nested
+# subpath, a shape this check already accepts — and an ordinary real directory
+# (no symlink anywhere in the chain) must still pass.
+# ---------------------------------------------------------------------------
+root="$(make_fixture symlink_leaf "$COMPOSE_SIMPLE")"
+mkdir -p "${scratch}/symlink_leaf_outside_target"
+ln -s "${scratch}/symlink_leaf_outside_target" "${root}/${APP_ID}/data"
+assert_case 'symlink: symlinked leaf fails closed even though it resolves to a real directory' 1 "$root" "${APP_ID}/data' is a symlink"
+
+root="$(make_fixture symlink_intermediate "$COMPOSE_NESTED")"
+mkdir -p "${scratch}/symlink_intermediate_outside_target/db"
+ln -s "${scratch}/symlink_intermediate_outside_target" "${root}/${APP_ID}/state"
+assert_case 'symlink: symlinked intermediate component under a nested subpath fails closed' 1 "$root" "${APP_ID}/state' is a symlink"
+
+root="$(make_fixture symlink_none_real_nested "$COMPOSE_NESTED")"
+mkdir -p "${root}/${APP_ID}/state/db"
+assert_case 'symlink: ordinary real nested directory with no symlink still passes' 0 "$root" "OK: every declared app-data bind-mount source is shipped: ${APP_ID}/state/db"
+
+# ---------------------------------------------------------------------------
 # Case — QUOTED VOLUME ENTRIES. `- "${APP_DATA_DIR}/data:/data"` and the
 # single-quoted spelling are legal, common Compose short-syntax; a check that
 # false-BLOCKS them is as much a defect as one that misses a real drift

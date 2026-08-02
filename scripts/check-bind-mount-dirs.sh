@@ -4,46 +4,36 @@
 # ${APP_DATA_DIR} that this repo does not ship as a committed directory inside
 # the app template.
 #
-# WHY. On a fresh install, umbreld materialises an app's data directory by
-# copying the STORE'S APP TEMPLATE into it, and nothing else puts anything
-# there:
+# WHY A STORE REPO NEEDS THIS. This repo's app template is the only thing
+# under this repo's control that determines what exists at a bind-mount
+# source on a fresh install — umbreld's own install mechanism pre-creates a
+# subdirectory only when the store ships it, and does nothing else to fix its
+# ownership. A missing directory here is fatal for THIS app specifically: the
+# container runs as uid 1000 under `cap_drop: ALL` + `no-new-privileges:true`
+# (DECISIONS.md entry 6), so it cannot create its SQLite database inside a
+# directory Docker would otherwise create root:root, and crash-loops on every
+# fresh install (issue #8). The upstream install()/rsync mechanism that makes
+# this true, why no on-box chown exists to fall back on, and the ecosystem
+# sweep that confirmed the pattern are recorded ONCE, in DECISIONS.md entry
+# 8 — read it there for the mechanism narrative and evidence rather than
+# here; restating it here would create a second copy of citations that rot
+# independently of that entry's.
 #
-#   1. `getumbrel/umbrel` @ master, packages/umbreld/source/modules/apps/apps.ts
-#      lines 302-308 — `install()` does `fse.mkdirp(appDataDirectory)` then
-#      `rsync --archive --verbose --exclude ".gitkeep"
-#      ${appTemplatePath}/. ${appDataDirectory}`. That rsync is the ONLY thing
-#      that materialises app-data. The apps module has no chown except
-#      apps.ts:169 (`sudo chown -R 1000:1000 .../tor`).
-#   2. `rsync --archive --exclude ".gitkeep"` DOES create the destination
-#      directory while skipping the `.gitkeep` file itself — which is exactly
-#      why upstream excludes it by name.
-#   3. So umbreld pre-creates a bind-mount source subdirectory ONLY IF the store
-#      repo ships that directory in the app template. Otherwise Docker creates
-#      it root:root at `compose up`.
-#   4. Falsification sweep of `getumbrel/umbrel-apps`: of 333 apps that mount
-#      ${APP_DATA_DIR}/data, 332 ship a committed `data/` directory (e.g.
-#      vaultwarden/data/.gitkeep).
-#
-# A root:root source is fatal for THIS app in particular. The container runs as
-# uid 1000 under `cap_drop: ALL` + `no-new-privileges:true` (DECISIONS.md entry
-# 6), so it cannot create its SQLite database inside a root-owned /data and has
-# no way to take ownership of it: SQLITE_CANTOPEN (errcode 14), then a crash
-# loop, on every fresh install. Receipt: issue #8.
-#
-# The invariant this check enforces is therefore a STORE-SIDE one, checkable
-# here and nowhere else: every host-side bind-mount source path the app's
-# `docker-compose.yml` declares under ${APP_DATA_DIR}/… must exist as a
-# committed directory inside the app template directory.
+# SCOPE. This check verifies what the compose file DECLARES against what this
+# repo SHIPS. It parses two shapes: short-form volume entries
+# (`- ${APP_DATA_DIR}/<host>:<container>`, unquoted or wrapped in matching
+# double/single quotes, with an optional `:ro`/`:rw` mount-mode suffix) and
+# long-form `env_file` path entries (`- path: ${APP_DATA_DIR}/<...>`), which
+# name a file Compose reads rather than a bind-mount source Docker creates and
+# are recognised but deliberately excluded from the directory assertion. It
+# does not inspect an installed box, and it asserts nothing about ownership at
+# runtime — ownership on the box is downstream of what this repo ships, and
+# what this repo ships is the half under this repo's control.
 #
 # FAIL-CLOSED. A file that is missing, a line the check cannot classify, or a
 # subpath that does not match the expected shape is a FAILURE, never a skip. A
 # check that silently passes when it cannot read its inputs is worse than no
 # check: it reports safety it never established.
-#
-# Scope: what the compose file declares versus what this repo ships. It does not
-# inspect an installed box, and it asserts nothing about ownership at runtime —
-# ownership on the box is downstream of what this repo ships, and what this repo
-# ships is the half under this repo's control.
 
 set -euo pipefail
 
@@ -202,6 +192,28 @@ for i in "${!host_subpaths[@]}"; do
   subpath="${host_subpaths[$i]}"
   source_line="${source_lines[$i]}"
   target="${repo_root}/${APP_ID}/${subpath}"
+
+  # No component of the resolved bind-mount source — from the app template
+  # directory down to the leaf — may be a symlink. `[[ -e ]]` and `[[ -d ]]`
+  # below both FOLLOW symlinks, so accepting one would let a symlinked
+  # component escape this app's directory even though the compose STRING
+  # contains no traversal segment: `rsync --archive` (DECISIONS.md entry 8)
+  # ships symlinks AS symlinks, so a symlink committed at or above the
+  # bind-mount source reproduces on the box unchanged, and Docker resolves it
+  # at mount time — handing the uid-1000, `cap_drop: ALL` container a bind
+  # mount into whatever it points at. The leaf alone is not sufficient: a
+  # nested subpath (a shape this check already accepts) escapes just as well
+  # through an INTERMEDIATE component, so every component from the app
+  # directory down to the leaf is checked in turn and the offending one is
+  # named on failure.
+  check_path="${repo_root}/${APP_ID}"
+  IFS='/' read -r -a target_segments <<< "$subpath"
+  for segment in "${target_segments[@]}"; do
+    check_path="${check_path}/${segment}"
+    if [[ -L "$check_path" ]]; then
+      fail "bind-mount source contains a symlink: ${APP_ID}/docker-compose.yml declares '${source_line}' but '${check_path#"${repo_root}/"}' is a symlink, not a real directory. rsync --archive ships symlinks verbatim, so a symlinked component here would hand the uid-1000, cap_drop: ALL container a bind mount into whatever the symlink resolves to on the host. Ship a real directory at every component of ${APP_ID}/${subpath}."
+    fi
+  done
 
   if [[ ! -e "$target" ]]; then
     fail "bind-mount source not shipped: ${APP_ID}/docker-compose.yml declares '${source_line}' but ${APP_ID}/${subpath} does not exist in this repo. umbreld pre-creates a host-side app-data subdirectory only when the app template ships it, so Docker will create the source root:root at compose up — and the container (uid 1000, cap_drop: ALL, no-new-privileges:true) cannot write into a root-owned directory, so it crash-loops on every fresh install. Ship ${APP_ID}/${subpath} as a committed directory."

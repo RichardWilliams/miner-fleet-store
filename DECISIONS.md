@@ -193,30 +193,15 @@ the app files (including this `docker-compose.yml`, so a new `volumes:` / `env_f
 lands) over an explicit whitelist that never includes the `data/` subdirectory, and
 uninstall removes the whole data directory via `app.ts`'s
 `fse.remove(this.dataDirectory)`. The shipped precedent is vaultwarden's
-`${APP_DATA_DIR}/data:/data` — specifically its committed `data/.gitkeep`, not
-the `user: "1000:1000"` line beside it. That earlier framing was wrong and
-shipped a fresh-install crash loop (`#8`): the `user:` directive governs which
-uid the CONTAINER runs as, and has no bearing on how Docker creates a MISSING
-bind-mount source on the HOST side, so citing it as the reason vaultwarden's
-mount works was a mis-read. What actually verified is `getumbrel/umbrel`
-apps.ts `install()`: it does `fse.mkdirp(appDataDirectory)` then
-`rsync --archive --exclude ".gitkeep" <template>/. <app-data-dir>` — that rsync
-is the ONLY thing that materialises app-data on a fresh install, and it
-pre-creates a subdirectory of it ONLY when the store repo SHIPS that
-subdirectory inside the app template. umbreld's apps module has no chown apart
-from a hardcoded `tor` path (`apps.ts:169`). A falsification sweep of
-`getumbrel/umbrel-apps` confirms the shape: of 333 apps mounting
-`${APP_DATA_DIR}/data`, 332 — including vaultwarden — ship a committed
-`data/.gitkeep`; the one exception (`file-drop`) instead runs a `hooks/pre-start`
-`mkdir -p` + `chown`. So this repo ships `pipfox-miner-fleet/data/.gitkeep`,
-which is what makes `${APP_DATA_DIR}/data` exist, owned `1000:1000`, before the
-container starts (the image itself runs as uid/gid `1000:1000` per
-miner-fleet's `docker/Dockerfile` and its `DECISIONS.md` entry 12), and the
-container writes under `cap_drop: ALL` + `no-new-privileges:true` with no root
-chown — the hardening does not need relaxing, and must not be relaxed to make
-the volume writable. `scripts/check-bind-mount-dirs.sh` enforces mechanically,
-at push time, that every `${APP_DATA_DIR}` bind-mount source this compose
-declares is shipped as a committed directory in the app template.
+`${APP_DATA_DIR}/data:/data`. An earlier version of this entry cited
+vaultwarden's `user: "1000:1000"` line as the reason that mount is writable —
+that was wrong and shipped a fresh-install crash loop (`#8`): `user:` governs
+which uid the CONTAINER runs as and has no bearing on how Docker creates a
+MISSING bind-mount source on the HOST side. What actually makes vaultwarden's
+mount (and this app's) writable on a fresh install, the falsification-sweep
+evidence behind it, and the mechanical check that now enforces it are recorded
+once, in full, in DECISIONS.md entry 8 — this entry defers to it rather than
+re-deriving the same mechanism a second time.
 
 The ORDERING is the load-bearing half: the volume and the disk-writing image ship
 together. Volume-first (before the writing image) declares storage nothing uses;
