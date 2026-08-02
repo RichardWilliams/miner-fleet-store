@@ -1,6 +1,7 @@
 .DS_Store
 Thumbs.db
 .worktrees/
+/.runtime/
 .claude/projects/
 .claude/settings.json
 .claude/settings.local.json
