@@ -10,7 +10,11 @@ work, recorded in `miner-fleet-store#1`'s issue body; they were captured by the
 bootstrap PR ahead of the structural change that implements them. Entries 4-5
 are decisions made by `#1` itself — the PR that landed the manifests, the compose
 file and the directory layout — and are appended by that PR, atomic with the
-change, per codespace CLAUDE.md RULE #0.
+change, per codespace CLAUDE.md RULE #0. Entry 6's ownership claim was corrected,
+and entry 8 appended, by the PR closing `#8` — the fix for a fresh-install
+crash loop caused by that entry's original, unverified claim about who creates
+and owns the bind-mount source. That same PR appended entry 9, recording the
+gate it added to enforce the `server` service's hardening mechanically.
 
 ---
 
@@ -190,11 +194,15 @@ the app files (including this `docker-compose.yml`, so a new `volumes:` / `env_f
 lands) over an explicit whitelist that never includes the `data/` subdirectory, and
 uninstall removes the whole data directory via `app.ts`'s
 `fse.remove(this.dataDirectory)`. The shipped precedent is vaultwarden's
-`${APP_DATA_DIR}/data:/data` with `user: "1000:1000"`. The image runs as uid/gid
-`1000:1000` (miner-fleet's `docker/Dockerfile` and its `DECISIONS.md` entry 12) and
-umbreld owns the bind-mount source `1000:1000`, so the container writes under
-`cap_drop: ALL` + `no-new-privileges:true` with no root chown — the hardening does
-not need relaxing, and must not be relaxed to make the volume writable.
+`${APP_DATA_DIR}/data:/data`. An earlier version of this entry cited
+vaultwarden's `user: "1000:1000"` line as the reason that mount is writable —
+that was wrong and shipped a fresh-install crash loop (`#8`): `user:` governs
+which uid the CONTAINER runs as and has no bearing on how Docker creates a
+MISSING bind-mount source on the HOST side. What actually makes vaultwarden's
+mount (and this app's) writable on a fresh install, the falsification-sweep
+evidence behind it, and the mechanical check that now enforces it are recorded
+once, in full, in DECISIONS.md entry 8 — this entry defers to it rather than
+re-deriving the same mechanism a second time.
 
 The ORDERING is the load-bearing half: the volume and the disk-writing image ship
 together. Volume-first (before the writing image) declares storage nothing uses;
@@ -264,3 +272,105 @@ configuration to the data volume and reads it at runtime (at which point the
 subnet moves there and this entry is reconsidered), or umbrelOS gains a native
 per-app settings mechanism that survives updates, or umbreld begins passing a
 persistent `--env-file` to community-app compose.
+
+---
+
+## 8. The app template ships `data/.gitkeep`; the bind-mount source is never created by an on-box hook
+
+**Statement.** `pipfox-miner-fleet/data/.gitkeep` is a committed, empty file. Its
+sole purpose is to force git — and, downstream, this repo's rsync-based app
+template — to carry a `data/` directory alongside `docker-compose.yml`, so that
+`${APP_DATA_DIR}/data` (entry 6's bind-mount source) exists, owned `1000:1000`,
+before the `server` container ever starts. No on-box script, hook, or chown is
+used to create or fix the ownership of this directory.
+
+**Why.** `getumbrel/umbrel` apps.ts `install()` materialises a fresh install's
+app-data directory by `rsync --archive --exclude ".gitkeep" <template>/.
+<app-data-dir>` and does nothing else to it — it does not pre-create arbitrary
+subdirectories, and it has no chown for this app's data path. So a subdirectory
+a compose file declares as a bind-mount source exists after install if and only
+if the store repo ships it inside the app template; otherwise Docker creates it
+`root:root` at `compose up`, and the hardened container (uid 1000, `cap_drop:
+ALL`, `no-new-privileges:true`) cannot write into it — `SQLITE_CANTOPEN`
+(errcode 14), crash loop, on every fresh install. This was verified, not
+assumed: a falsification sweep of `getumbrel/umbrel-apps` found 332 of 333 apps
+mounting `${APP_DATA_DIR}/data` ship a committed `data/.gitkeep`, matching this
+mechanism. Re-derivable method, run 2026-08-02: shallow-clone
+`getumbrel/umbrel-apps`, select every app directory whose `docker-compose.yml`
+declares an `${APP_DATA_DIR}/data` bind mount, and check whether that same app
+directory ships a committed `data/` directory. `scripts/check-bind-mount-dirs.sh`
+now enforces the invariant mechanically — this entry records the choice among
+the alternatives that mechanism forecloses:
+
+- **(a) Mount `${APP_DATA_DIR}` itself as `/data`, rather than the `data`
+  subdirectory beneath it — REJECTED.** It would work: the app-data root is the
+  directory umbreld itself creates and owns, so it is writable with no
+  extra step. It is rejected because `${APP_DATA_DIR}` also holds
+  `docker-compose.yml` and `umbrel-app.yml` — the exact files umbreld reads to
+  run this app — so mounting the root exposes umbreld's own control files to a
+  writable mount inside the container. A compromised container could rewrite
+  its own compose file or manifest and escalate on the app's next restart. The
+  `data` subdirectory carries no such file, so mounting only it keeps the
+  container's write access scoped to state it actually owns.
+- **(b) A `hooks/pre-start` script doing `mkdir -p` + `chown -R 1000:1000` on
+  the box — REJECTED.** This is a real, shipped upstream pattern — the single
+  exception in the 333-app sweep (`file-drop`) uses exactly this — and it has a
+  genuine advantage a committed directory does not: it would SELF-HEAL an
+  existing box already caught by this bug, where a static `data/.gitkeep`
+  cannot retroactively fix a `root:root` directory Docker already created. It
+  is rejected anyway because it hands umbreld a host-side script that this
+  PUBLIC repo would run AS ROOT on every app start, which cuts directly against
+  the hardening posture the rest of this file establishes (digest pinning,
+  `cap_drop: ALL`, `no-new-privileges:true`) — for the sake of repairing an
+  install base of roughly one box, which a documented one-off `chown`
+  (DEPLOY.md § 4) already recovers without any code running on the box at all.
+
+No `version` bump accompanies this fix. `data/` is not in umbreld's
+`legacy-compat/app-script` update whitelist
+(`UPDATE_FILES_WHITELIST_PRE`/`_POST`), so an app UPDATE never touches it —
+bumping `version` would deliver nothing to an already-broken box, while also
+obligating a content-identical `0.2.1` miner-fleet image re-release purely to
+keep `scripts/check-version-drift.sh` green. A fresh install or a reinstall
+rsyncs whatever this repo currently holds, so it gets the fix with no version
+change at all; an already-broken box is repaired by the manual `chown` in
+DEPLOY.md § 4, not by an update. The `chown` and a reinstall are not
+equivalent-cost recoveries for a box that already has state: `chown` preserves
+it, while `reinstall` runs `uninstall` first, and `uninstall` removes the whole
+app-data directory (`app.ts`: `fse.remove(this.dataDirectory)`) — destroying the
+inventory/telemetry SQLite history and the operator's `config.env` (entry 7)
+before `install` re-creates it from the template. DEPLOY.md § 4 states this.
+
+**Revisit if.** umbreld starts pre-creating declared bind-mount sources itself
+(verify against its source, not by observing a deployment that happened to
+work), or the install base grows past the point where a documented one-off
+`chown` is a reasonable recovery for an already-broken box, or umbrelOS gains a
+first-class per-app data-permission mechanism that makes either rejected option
+above safe to adopt.
+
+---
+
+## 9. The `server` service's hardening is enforced mechanically, not by inspection
+
+**Statement.** `scripts/check-compose-hardening.sh` asserts, on the `server`
+service alone, that `cap_drop:` contains `ALL`, that `security_opt:` contains
+`no-new-privileges:true`, that no `network_mode: host` is declared, and that no
+host `ports:` are published. It runs in `.local-ci.yml`, so the push gate and CI
+execute it identically. It fails closed on anything it cannot parse.
+
+**Why.** Entries 2 and 6 already record this hardening as a decision, but a
+decision recorded in prose is only checked when someone reads the file. The PR
+that added this gate verified the property by inspection — every compose line it
+changed was a comment, so nothing about the `server` service moved — and that
+inspection covers exactly one reading of one diff. It does not survive the next
+one. A later edit that drops `cap_drop:` while rewording the prose around it
+produces a container that still starts, still passes the version-drift and
+bind-mount gates, and silently runs with full capabilities on the operator's box.
+The assertion is scoped to `server` because `app_proxy` is Umbrel's injected
+reverse-proxy: a directive found there says nothing about the container that runs
+the app, so a whole-file match would report safety it never established.
+
+**Revisit if.** umbrelOS stops fronting community apps with `app_proxy` (which is
+what makes a published host port unnecessary), or the app acquires a genuine need
+for host networking or a retained capability. In either case entries 1, 2 or 6
+change first and this gate follows them — the gate is downstream of those
+decisions, never the reason to keep one.

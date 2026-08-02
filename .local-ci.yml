@@ -37,3 +37,32 @@ steps:
   - name: test-version-drift
     run: bash tests/test-check-version-drift.sh
     timeout: 120
+
+  # Every host-side bind-mount source the compose declares under
+  # ${APP_DATA_DIR} must be shipped as a committed directory here. umbreld only
+  # pre-creates one when the app template contains it, so a declared-but-unshipped
+  # path is created root:root by Docker and the uid-1000 container cannot write
+  # into it — a crash loop on every fresh install, with nothing in this repo's
+  # diff to explain it (issue #8).
+  - name: bind-mount-dirs
+    run: bash scripts/check-bind-mount-dirs.sh
+    timeout: 60
+
+  # That check's own tests, for the same reason the drift check has them.
+  - name: test-bind-mount-dirs
+    run: bash tests/test-check-bind-mount-dirs.sh
+    timeout: 120
+
+  # The `server` service's hardening — cap_drop: ALL, no-new-privileges:true, no
+  # host networking, no published host port (DECISIONS.md entries 1, 2 and 6) —
+  # asserted mechanically rather than by reading the diff. A compose edit that
+  # drops one of them yields a container that still starts and still passes every
+  # other gate here, while running with full capabilities (DECISIONS.md entry 9).
+  - name: compose-hardening
+    run: bash scripts/check-compose-hardening.sh
+    timeout: 60
+
+  # That check's own tests, for the same reason the drift check has them.
+  - name: test-compose-hardening
+    run: bash tests/test-check-compose-hardening.sh
+    timeout: 120
