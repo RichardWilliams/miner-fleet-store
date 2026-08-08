@@ -2,12 +2,15 @@
 Thumbs.db
 .worktrees/
 /.runtime/
+scripts/batch-build-logs/
+scripts/review-cycle-logs/
 .claude/projects/
 .claude/settings.json
 .claude/settings.local.json
 .local/
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 *.p12
@@ -28,6 +31,7 @@ docker-compose.override.yml
 docker-compose.override.yaml
 compose.override.yml
 compose.override.yaml
+coverage/
 .vscode/
 !.vscode/extensions.json
 .idea/

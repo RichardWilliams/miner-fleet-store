@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Pre-commit hook: enforces commit hygiene checks.
+#
+# Checks performed:
+#   1. Block direct commits to the main branch.
+#   2. Scan for dangling references to files being deleted in this commit.
+#   3. Lint agent files for common anti-patterns when .claude/agents/*.md files are staged.
+#
+# Activate with: git config core.hooksPath .githooks
+# Bypass (genuine emergency only): ALLOW_HOOK_BYPASS=1 git commit
+#   (the .claude/hooks/block-hook-bypass.sh PreToolUse hook blocks --no-verify)
+
+# --- 1. Block commits to the protected branch ---
+PROTECTED_BRANCH="${PROTECTED_BRANCH:-main}"
+branch="$(git symbolic-ref --short HEAD 2>/dev/null)"
+
+if [[ "$branch" == "$PROTECTED_BRANCH" ]]; then
+    echo "ERROR: direct commits to main are not allowed." >&2
+    echo "Create a feature branch first:" >&2
+    echo "  git worktree add .worktrees/<branch-slug> -b <type>/<description>" >&2
+    echo "  — or —" >&2
+    echo "  git checkout -b <type>/<description>" >&2
+    echo "" >&2
+    echo "To bypass (genuine emergency only): ALLOW_HOOK_BYPASS=1 git commit  (and add the justification in the commit message)" >&2
+    exit 1
+fi
+
+# --- 2. Check for dangling references to deleted files ---
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+dangling_check="${REPO_ROOT}/scripts/check-dangling-refs.sh"
+
+if [[ -x "$dangling_check" ]]; then
+    "$dangling_check" || exit 1
+fi
+
+# --- 3. Lint staged agent files for common anti-patterns ---
+agent_lint="${REPO_ROOT}/scripts/check-agent-lint.sh"
+
+if [[ -x "$agent_lint" ]]; then
+    mapfile -t staged_agents < <(git diff --cached --name-only --diff-filter=ACM | grep -E '^\.claude/agents/[^/]+\.md$' || true)
+    if [[ ${#staged_agents[@]} -gt 0 ]]; then
+        staged_abs=()
+        for f in "${staged_agents[@]}"; do
+            staged_abs+=("${REPO_ROOT}/${f}")
+        done
+        "$agent_lint" --files "${staged_abs[@]}" || {
+            echo "" >&2
+            echo "Agent lint failed. Fix the anti-patterns above before committing." >&2
+            echo "To bypass (genuine emergency only): ALLOW_HOOK_BYPASS=1 git commit  (and add the justification in the commit message)" >&2
+            exit 1
+        }
+    fi
+fi
+
+# --- 4. Verify generated .claude/settings.json is in sync with canonical inputs ---
+# settings.json is regenerated from .claude/canonical/hook-registrations.json
+# plus .claude/settings.local-additions.json. Hand-edits to settings.json
+# (or stale regenerations after editing the inputs) bypass the canonical
+# channel. Run sync-settings.sh in --verify mode and refuse the commit
+# if the on-disk file is out of sync.
+sync_settings="${REPO_ROOT}/scripts/sync-settings.sh"
+canonical_fragment="${REPO_ROOT}/.claude/canonical/hook-registrations.json"
+
+if [[ -x "$sync_settings" ]] && [[ -f "$canonical_fragment" ]]; then
+    # Run only when staged changes touch the inputs, the output, the
+    # generator itself, or the pre-commit hook. Avoids slowing every
+    # commit with a check that almost never has anything to verify.
+    relevant=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(\.claude/(canonical/hook-registrations\.json|settings\.json|settings\.local-additions\.json)|scripts/sync-settings\.sh|\.githooks/pre-commit)$' || true)
+    if [[ -n "$relevant" ]]; then
+        "$sync_settings" --repo "$REPO_ROOT" --verify || {
+            echo "" >&2
+            echo "settings.json is out of sync with canonical inputs." >&2
+            echo "Regenerate, stage, and commit again:" >&2
+            echo "  scripts/sync-settings.sh --repo $REPO_ROOT" >&2
+            echo "  git add .claude/settings.json" >&2
+            echo "" >&2
+            echo "To bypass (genuine emergency only): ALLOW_HOOK_BYPASS=1 git commit  (and add the justification in the commit message)" >&2
+            exit 1
+        }
+    fi
+fi

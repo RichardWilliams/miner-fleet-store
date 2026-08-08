@@ -1,0 +1,62 @@
+name: Batch Build Item
+description: A task for the automated batch-build runner to execute
+labels: ["batch-build"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Batch Build Item
+
+        The **title** must use conventional commit format — it becomes the PR title and
+        determines the branch name:
+
+        - `feat(scope): add new feature` → branch `feat/add-new-feature`
+        - `fix: broken thing` → branch `fix/broken-thing`
+        - `refactor(auth): simplify flow` → branch `refactor/simplify-flow`
+
+        The **body** below is the prompt sent to Claude in headless mode.
+        Do NOT include the headless preamble — the runner injects it automatically.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why this work is needed — background, motivation, or problem statement.
+      placeholder: Explain what prompted this task...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: What to do
+      description: Step-by-step instructions for Claude to follow.
+      placeholder: |
+        1. Read STANDARDS.md for current conventions
+        2. Create the new component in src/components/...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Key constraints
+      description: Rules, non-negotiables, or things to avoid.
+      placeholder: |
+        - Must pass `npm run lint` and `npm run type-check`
+        - Mobile + tablet responsive from day one
+        - ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Expected output
+      description: What the PR should contain when done.
+      placeholder: |
+        - Branch: `feat/my-feature`
+        - PR with updated components and tests
+    validations:
+      required: false

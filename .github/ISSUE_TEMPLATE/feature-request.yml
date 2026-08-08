@@ -1,0 +1,52 @@
+name: Feature Request
+description: Propose a new feature or general task
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Feature Request
+
+        The **title** must use conventional commit format — it becomes the PR title:
+
+        - `feat(scope): add new feature`
+        - `chore(scope): maintenance task`
+        - `refactor(scope): restructure something`
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why is this needed? Background, motivation, or problem statement.
+      placeholder: Explain what prompted this request...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What to build or change.
+      placeholder: Describe the proposed implementation...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you considered and why they were rejected.
+      placeholder: Describe alternative approaches...
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How to know this is done.
+      placeholder: |
+        - [ ] Criterion 1
+        - [ ] Criterion 2
+    validations:
+      required: false
