@@ -1,0 +1,83 @@
+name: Bug Report
+description: Report a defect, broken behavior, regression, or crash
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Bug Report
+
+        The **title** must use conventional commit format — it becomes the PR title:
+
+        - `fix(scope): description of the bug`
+        - `fix: description of the bug` (if no clear scope)
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered list of steps to reproduce the bug.
+      placeholder: |
+        1. Navigate to ...
+        2. Click on ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should happen.
+      placeholder: Describe what you expected to happen...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happens.
+      placeholder: Describe what actually happens instead...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: How severe is this bug?
+      options:
+        - critical — system crash, data loss, security vulnerability
+        - high — core feature broken, blocks critical user flow
+        - medium — feature degraded, workaround exists
+        - low — cosmetic, edge case, minor inconvenience
+    validations:
+      required: true
+
+  - type: input
+    id: test-file
+    attributes:
+      label: Test file
+      description: Path to the failing test file, if one exists.
+      placeholder: e.g. e2e/component.bug.001.spec.ts
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Attach screenshots if applicable.
+      placeholder: Drag and drop screenshots here...
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Any other relevant information.
+      placeholder: Environment details, logs, related issues...
+    validations:
+      required: false
