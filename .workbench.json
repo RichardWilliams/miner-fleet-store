@@ -1,0 +1,9 @@
+{
+  "github": "RichardWilliams/miner-fleet-store",
+  "type": "infrastructure",
+  "repoType": "config",
+  "enabled": true,
+  "description": "Umbrel Community App Store for the miner-fleet app — the public repo umbrelOS clones and polls.",
+  "validation": { "ci": null },
+  "build": { "defaultTimeoutMs": 1800000 }
+}
