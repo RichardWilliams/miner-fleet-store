@@ -104,24 +104,11 @@ vendor_root="${repo_root}/${VENDOR_REL_DIR}"
 # clear an `upstream/notes-old.txt` left behind by hand — precisely the route
 # this gate exists to cover.
 #
-# The third branch is the one worth explaining, because "refuse it" rather than
-# "skip it" is what keeps the first sentence true. `scripts/release.sh` writes
-# regular files into plain directories and nothing else, so every other kind of
-# entry here arrived by hand, and this gate has no way to read one and therefore
-# no way to clear one:
-#
-#   * A SYMLINK is refused rather than followed. What git publishes for a
-#     symlink is its target PATH — scanning the target's CONTENTS instead would
-#     be reading a different thing from the one that becomes public, and a
-#     symlink pointing outside the tree, or at nothing, is not readable as a
-#     vendored artefact at all.
-#   * A DIRECTORY bash cannot list is refused. A glob over an unreadable
-#     directory yields nothing and reports nothing, so the alternative is a
-#     silent skip of every file inside it — the same shape as the dotfile gap
-#     above.
-#   * Anything that is neither (a fifo, a socket, a device node) is refused for
-#     the same reason: `grep` over it does not answer the question this gate
-#     asks, and git cannot carry it into a release anyway.
+# The third branch refuses rather than skips, which is what keeps the first
+# sentence true. `scripts/release.sh` writes regular files into plain
+# directories and nothing else, so anything else here arrived by hand and this
+# gate cannot read it. Each refusal's own `fail()` message below states why for
+# the entry it fires on; they are not restated here.
 targets=("$manifest" "$compose")
 
 shopt -s nullglob globstar dotglob
