@@ -37,6 +37,26 @@
 #     push-time gates fire when this script is INVOKED and evaluate HEAD as it
 #     stands then, which is the commit BEFORE the bump (DECISIONS.md entry 16).
 #
+# WHICH TESTS MAKE THE FOUR "never" BULLETS ABOVE TRUE. They are cross-cutting
+# properties of the whole run rather than of any one line, so they are named
+# here rather than left for a reader to trust:
+#
+#   * tree-untouched-on-refusal — tests/test-release.sh's `assert-tree-untouched`
+#     helper snapshots every file under the app and vendored directories, runs
+#     the driver, and re-snapshots. It is applied at eight refusal sites: the
+#     missing and empty Release, all three markdown refusals, both credential
+#     refusals, and the contract mismatch.
+#   * the refusal names the category and never the matched text —
+#     tests/test-check-secret-leak.sh's "the contract refusal never echoes the
+#     matched text" case, which greps the failure output for the credential it
+#     planted.
+#   * it never pushes and never opens the PR — tests/test-release.sh's
+#     "stop-short: the run says nothing has been pushed", "resume: still nothing
+#     pushed" (which checks the bare remote for the branch ref) and "resume:
+#     still no PR opened" (which counts the `gh` stub's create invocations).
+#   * it never accepts a digest argument — the two "argument:" cases covering
+#     the `tag@digest` and bare-digest forms.
+#
 # VENDOR-AT-BUMP-TIME. The two networked reads — the Release body and the
 # deployment contract at tag `vX.Y.Z` — happen HERE, once, on the operator's
 # machine where `gh`, `docker` and the network exist. Both artefacts are then
@@ -156,7 +176,9 @@ if [[ -n "$dirty" ]]; then
 
 ${dirty}
 
-This driver refuses to write over an uncommitted change it cannot account for — a run interrupted between writing the tree and committing it leaves exactly this state, and re-running blindly would bury it. Inspect the paths above with 'git -C ${repo_root} diff -- <path>'. If they are a complete bump left by an interrupted run, commit them; if they are unwanted, discard the tracked ones with 'git -C ${repo_root} restore --source=HEAD --staged --worktree -- <path>' and delete any untracked leftovers. Then re-run."
+This driver refuses to write over an uncommitted change it cannot account for — a run interrupted between writing the tree and committing it leaves exactly this state, and re-running blindly would bury it.
+
+The lines above are git's own status markers, and they are what to read: '??' is a file this driver wrote and never committed, ' M' a modified tracked file, ' D' a tracked file it removed. No single inspection command covers both halves of that — 'git diff' is silent on untracked paths — so judge it from the markers themselves. If it is a complete bump left by an interrupted run, commit it; if it is unwanted, discard the tracked paths with 'git -C ${repo_root} restore --source=HEAD --staged --worktree -- <path>' and delete the untracked ones. Then re-run."
 fi
 
 # --- staging ------------------------------------------------------------------

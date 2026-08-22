@@ -463,7 +463,11 @@ and its default, and the required environment keys.
 `scripts/check-deploy-contract.sh` reads that contract at the PINNED tag and
 asserts that `pipfox-miner-fleet/docker-compose.yml` still satisfies it. The
 compose is never generated, templated, rewritten or emitted from the contract.
-That direction is permanent.
+That direction is permanent, and it is checked rather than merely stated:
+`tests/test-check-deploy-contract.sh` snapshots the compose, runs the gate, and
+re-compares the bytes, on a PASSING run and on a FAILING one — a gate that
+rewrote the compose while asserting against it would fail whichever of those two
+cases it touched.
 
 The gate's unknown-field rule is scoped to the `packagingAffecting` subtree,
 deliberately: an unrecognised field there is a failure naming the field, while
@@ -617,6 +621,13 @@ Two consumers share that one declaration:
 
 Every refusal names the CATEGORY and never the matched text.
 
+Both halves of that are tested on both consumers, so this entry records a
+checked property rather than a promise. `tests/test-release.sh` plants a known
+credential-shaped value in each fetched artefact and greps the driver's whole
+failure output for it, and separately snapshots the tree before and after every
+refusal to hold the untouched-tree half; `tests/test-check-secret-leak.sh` does
+the echo half for the push-time gate.
+
 Private-range and loopback IP literals are deliberately NOT refused.
 
 **Why — both places, not one.** The driver is where upstream text ENTERS the
@@ -731,10 +742,16 @@ own, not a push buried inside the step that creates the commit.
 **Statement.** `scan-duplicate-code-blocks` reports the English release-notes
 prose as duplicated between `pipfox-miner-fleet/umbrel-app.yml`'s
 `releaseNotes` and the vendored `upstream/vX.Y.Z/release-notes.txt`. It is
-correct: the two are the same text, deliberately. Every future release bump
-writes a new body into both files and re-trips the same finding, so every bump
-clears it with a per-use `--allow-bypass scan-duplicate-code-blocks --reason
-"…"` waiver at the pre-review producer, and again at push. That recurrence is
+correct: the two are the same text, deliberately. The recurrence is WIDER than
+a release cadence, and stating it as "every bump" understated it: the scanner
+reads the branch's diff against `main`, so it re-trips on EVERY commit made
+while the branch carries the duplication, whether or not that commit touches
+either duplicated file. Observed directly on this PR's own branch — the commit
+that added the working-tree guard changed neither the manifest nor the vendored
+body and still tripped it. So the waiver is spent once per pre-review run and
+once per push, not once per release, and it is cleared with a per-use
+`--allow-bypass scan-duplicate-code-blocks --reason "…"` waiver each time. That
+recurrence is
 the accepted, permanent cost of packaging an upstream Release body into an
 Umbrel manifest. It is not a defect carried forward and it is not awaiting a
 fix; it is recorded here so the operator cutting the next bump recognises the

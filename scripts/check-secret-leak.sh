@@ -87,6 +87,18 @@ vendor_root="${repo_root}/${VENDOR_REL_DIR}"
 # directory it descends, a regular file it scans, or ANYTHING ELSE, which stops
 # the run. There is no fourth branch and nothing is passed over quietly.
 #
+# WHICH TESTS MAKE THAT TRUE. The sentence above is a universal claim about a
+# loop, so the cases that hold it up are named rather than assumed — this exact
+# claim was false once (the walk skipped dot-prefixed entries until dotglob was
+# added), and a reader has no way to tell a swept claim from an unswept one
+# unless it says where it is checked. In tests/test-check-secret-leak.sh:
+# "a credential in a hidden file beside the artefacts fails", "the refusal names
+# the hidden file it was in", "a credential inside a hidden directory fails" and
+# "a clean hidden file is counted, not silently passed over" hold the
+# dot-prefixed half at both depths; "a directory the walk cannot list fails" and
+# "a symlink under the vendored root fails" hold two of the three branches; the
+# fifo case holds the third.
+#
 # It is RECURSIVE and takes every regular file rather than the two filenames the
 # driver writes, because a gate that scanned only the names it expected would
 # clear an `upstream/notes-old.txt` left behind by hand — precisely the route

@@ -601,7 +601,19 @@ run_release 'crash-before-commit: a retry refuses to write over the leftovers' \
 run_release 'crash-before-commit: the refusal names the manifest it would bury' \
   1 'umbrel-app.yml' "$root" "$TARGET_VERSION"
 run_release 'crash-before-commit: the refusal says how to resolve it' \
-  1 'commit them' "$root" "$TARGET_VERSION"
+  1 'commit it' "$root" "$TARGET_VERSION"
+
+# The refusal must send the operator to the status markers it just printed, NOT
+# to a single inspection command — `git diff` is silent on untracked paths, and
+# the newly-vendored directory is exactly the untracked half an operator most
+# needs to see before deciding whether the leftovers are a complete bump. An
+# earlier version of this message named `git diff` and was wrong for that half.
+run_release 'crash-before-commit: the refusal explains the status markers' \
+  1 "'??' is a file this driver wrote" "$root" "$TARGET_VERSION"
+
+capture_release "$root" "$TARGET_VERSION"
+assert_case 'crash-before-commit: and does not send the operator to git diff' \
+  1 '' grep -F 'diff --' "${root}/.stub/driver.out"
 
 # ORDERING, proven rather than asserted from the source. With the registry stub
 # armed to fail, a driver that reached step 1 would die naming the inspect
