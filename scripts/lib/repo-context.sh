@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # The one declaration of this repo's GitHub coordinates, of the file paths the
-# release driver and its gates share, and of the patterns derived from them.
+# release driver and its gates share, of the gate list a release is verified by,
+# and of the patterns derived from them.
 #
 # INVARIANTS.md § Encapsulation states the rule this file exists to satisfy: a
 # managed repo's own tracked code declares its `owner/repo` slug exactly ONCE,
@@ -114,6 +115,43 @@ vendor_rel_path() {
 # emitter and the drift gate both read it from here, so the value the driver
 # writes and the value the gate re-emits can never disagree.
 NOTES_BLOCK_INDENT=2
+
+# --- The gates a release is verified by --------------------------------------
+
+# The fail-closed gates a release bump is verified by, named ONCE. The release
+# driver guards their existence before it fetches anything and re-runs every one
+# of them against the tree it just wrote; the hand-off it prints names them in
+# its PR body; DEPLOY.md § 3.1's hand path sources this file and loops over the
+# same array; and tests/test-release.sh copies exactly these gates into every
+# fixture it builds.
+#
+# The list lived in scripts/release.sh until a second, hand-written copy of it
+# in that script's own PR body drifted: the body named three gates while the
+# array ran four, having missed check-secret-leak.sh when that gate was added.
+# A driver can be sourced by nothing, so a doc or a suite that wanted the list
+# had no choice but to spell it out again. Moving the declaration into this
+# sourceable library is what lets every consumer READ it instead
+# (INVARIANTS.md § Encapsulation).
+#
+# Two sites still name these gates and can read neither this array nor anything
+# derived from it, so each is held true by its own mechanism rather than by care:
+#
+#   - `.local-ci.yml` runs each gate as its own named step with its own timeout
+#     and its own rationale, and runs six test suites besides. It is the
+#     operator-authored CI step set (INVARIANTS.md § Local CI Equivalence) rather
+#     than a copy of this list, and YAML can source nothing. tests/test-release.sh
+#     asserts that every entry here has a step there, so a gate added to this
+#     array and forgotten there goes red instead of running at bump time and
+#     never at push time.
+#   - DEPLOY.md § 3.1 step 5's prose names two of them individually, to say why
+#     the SET has to be run together rather than to enumerate the set. Adding a
+#     gate here does not date it.
+RELEASE_GATES=(
+  check-version-drift
+  check-release-notes-drift
+  check-deploy-contract
+  check-secret-leak
+)
 
 # --- when a consumer may retype a value instead of sourcing this file --------
 #

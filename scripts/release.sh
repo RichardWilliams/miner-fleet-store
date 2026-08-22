@@ -7,8 +7,9 @@
 # it resolves the digest from the registry, fetches the Release body and the
 # deployment contract, asserts the contract against the current compose, and
 # only then rewrites the pinned version, the image reference and the listing's
-# release notes, and opens the PR. DEPLOY.md § 3 keeps the equivalent hand-edit
-# as the recovery path for when this script cannot run.
+# release notes, commits them, and hands the operator the push. DEPLOY.md § 3
+# keeps the equivalent hand-edit as the recovery path for when this script
+# cannot run.
 #
 # WHAT IT NEVER DOES.
 #
@@ -28,6 +29,11 @@
 #   * It never writes a byte into the tree before the deployment contract has
 #     been asserted against the compose that is already there, so a mismatch
 #     leaves the working tree exactly as it was.
+#   * It never pushes, and never opens the PR. It prepares the bump, commits it
+#     and stops, printing the exact commands the operator runs next. A commit
+#     pushed from in here would arrive at a SHA nothing had validated: the
+#     push-time gates fire when this script is INVOKED and evaluate HEAD as it
+#     stands then, which is the commit BEFORE the bump (DECISIONS.md entry 16).
 #
 # VENDOR-AT-BUMP-TIME. The two networked reads — the Release body and the
 # deployment contract at tag `vX.Y.Z` — happen HERE, once, on the operator's
@@ -39,16 +45,18 @@
 # DECISIONS.md entry 13 for the single policy and for what it does and does not
 # buy.
 #
-# RESUMABLE. Re-running for the same version after a mid-sequence failure
-# rewrites the same files with the same content, pushes the same branch, and
-# looks for an already-open PR for that head branch rather than opening a
-# second one.
+# RESUMABLE, off real artefacts rather than off anything this script wrote down
+# on a previous run. Re-running for the same version after a mid-sequence
+# failure rewrites the same files with the same content, so the index has
+# nothing new to record and no second commit is made; and it asks GitHub itself
+# whether a PR is already open for the branch, printing the push alone and
+# naming that PR when there is one.
 #
 # usage: scripts/release.sh X.Y.Z
 #
-# Environment: RELEASE_REMOTE overrides the git remote the release branch is
-# pushed to; with it unset the first configured remote is used. Neither the
-# remote name nor the default branch is hardcoded.
+# Environment: RELEASE_REMOTE overrides the git remote named in the push command
+# this script hands back; with it unset the first configured remote is used.
+# Neither the remote name nor the default branch is hardcoded.
 
 set -euo pipefail
 
@@ -59,26 +67,16 @@ repo_root="$(cd -P "${script_dir}/.." && pwd)"
 
 # fail() is shared with this repo's gates — see scripts/lib/check-common.sh.
 source "${script_dir}/lib/check-common.sh"
-# The GitHub coordinates, the registry coordinate, the shared paths and the
-# patterns derived from them are declared once — see scripts/lib/repo-context.sh
-# and INVARIANTS.md § Encapsulation.
+# The GitHub coordinates, the registry coordinate, the shared paths, the gates a
+# release is verified by (RELEASE_GATES) and the patterns derived from them are
+# declared once — see scripts/lib/repo-context.sh and INVARIANTS.md
+# § Encapsulation.
 source "${script_dir}/lib/repo-context.sh"
 # The credential shapes this repo refuses to publish, and the scan itself, are
 # shared with scripts/check-secret-leak.sh — see scripts/lib/secret-patterns.sh.
 source "${script_dir}/lib/secret-patterns.sh"
 
 readonly HELPER="${script_dir}/lib/manifest_data.py"
-
-# The gates this driver depends on, named once. The same list is guarded for
-# existence before anything runs and re-run against the tree afterwards; two
-# hand-kept copies of it could disagree about which gates a release is verified
-# by.
-readonly GATES=(
-  check-version-drift
-  check-release-notes-drift
-  check-deploy-contract
-  check-secret-leak
-)
 
 # POSIX ERE only — no \d, \s or \b (INVARIANTS.md § Tool invocation correctness).
 # Anchored at line start, which is the entire reason the indented `Manifests:`
@@ -89,6 +87,28 @@ readonly TOP_LEVEL_DIGEST_ERE="^Digest:[[:space:]]+${DIGEST_ERE}[[:space:]]*$"
 # each of the three refusals.
 readonly MARKDOWN_RATIONALE="Umbrel's Markdown component short-circuits for community app stores: on a /community-app-store page it renders the raw string in a plain whitespace-pre-line div and bypasses react-markdown entirely, so '**' renders as literal asterisks, a [text](url) link as literal brackets and parens, and a leading '#' as literal hashes. The updates dialog renders the SAME string through the same component but keys on the CURRENT route, so opened from outside /community-app-store it DOES render markdown. Two surfaces, two results — plain prose is the only spelling correct on both (DECISIONS.md entry 11). Edit the Release body upstream, then re-run."
 
+# render_gate_list — the declared gates as one backticked English list.
+#
+# The hand-off's PR body has to name the gates the run verified with, and a
+# sentence typed beside RELEASE_GATES is a second copy of it in prose. The copy
+# this replaced had already drifted: it named three gates while the array ran
+# four, having missed check-secret-leak.sh when that gate was added. Building
+# the sentence from the array removes the second copy — change the array and the
+# sentence moves with it (INVARIANTS.md § Encapsulation).
+render_gate_list() {
+  local rendered="" index=0
+  local last=$(( ${#RELEASE_GATES[@]} - 1 ))
+  for (( index = 0; index <= last; index++ )); do
+    if (( index == last && index > 0 )); then
+      rendered+=" and "
+    elif (( index > 0 )); then
+      rendered+=", "
+    fi
+    rendered+="\`${RELEASE_GATES[index]}.sh\`"
+  done
+  printf '%s' "$rendered"
+}
+
 # --- guards: CLI, then work tree, then files ---------------------------------
 
 for tool in docker gh git python3; do
@@ -97,14 +117,24 @@ for tool in docker gh git python3; do
 done
 
 git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-  || fail "${repo_root} is not a git work tree; the release driver commits and pushes a release branch"
+  || fail "${repo_root} is not a git work tree; the release driver commits a release branch"
+
+# The remote is resolved HERE, with the other guards, because the only thing this
+# script does with it is NAME it in the push command it hands back at the end. An
+# unresolvable remote is therefore a guard failure like any other, caught before
+# a byte is fetched rather than after the tree has been rewritten and committed.
+remote="${RELEASE_REMOTE:-}"
+if [[ -z "$remote" ]]; then
+  remote="$(git -C "$repo_root" remote | head -n 1)"
+fi
+[[ -n "$remote" ]] || fail "no git remote is configured, so the release branch has nowhere to be pushed; set RELEASE_REMOTE or add a remote"
 
 manifest="${repo_root}/${MANIFEST_REL_PATH}"
 compose="${repo_root}/${COMPOSE_REL_PATH}"
 [[ -f "$HELPER" ]] || fail "shared manifest parser not found at ${HELPER}"
 [[ -f "$manifest" ]] || fail "app manifest not found at ${manifest}"
 [[ -f "$compose" ]] || fail "compose file not found at ${compose}"
-for gate in "${GATES[@]}"; do
+for gate in "${RELEASE_GATES[@]}"; do
   [[ -f "${script_dir}/${gate}.sh" ]] || fail "gate script not found at ${script_dir}/${gate}.sh"
 done
 
@@ -289,12 +319,24 @@ printf 'release: wrote version %s, image tag %s and digest %s\n' "$version" "$ve
 # --- 9. verify the written tree ----------------------------------------------
 
 printf 'release: re-running the gates against the written tree\n'
-for gate in "${GATES[@]}"; do
+for gate in "${RELEASE_GATES[@]}"; do
   bash "${script_dir}/${gate}.sh" \
     || fail "post-write verification failed: ${gate}.sh does not pass against the tree this run just wrote. The tree is on branch ${branch} and nothing has been committed."
 done
 
-# --- 10. commit, push, and open the PR exactly once --------------------------
+# --- 10. commit, and stop short of the push ----------------------------------
+#
+# The driver COMMITS and STOPS. It does not push, and it does not open the PR.
+# That boundary is a recorded decision rather than a missing step: the push-time
+# gates evaluate whatever is HEAD when they fire, and they fire when THIS script
+# is INVOKED — before the commit below exists. A push issued from in here would
+# therefore carry a SHA no gate had seen, verified by the gates re-run in step 9
+# and by none of `.local-ci.yml`'s test suites. The operator runs the push, where
+# every gate evaluates the actual commit (DECISIONS.md entry 16, and INVARIANTS.md
+# § Local CI Equivalence, which is the system-wide rule that decides it).
+#
+# The re-run case is decided by reading the index against HEAD — a real artefact,
+# never a state file this script wrote on a previous run.
 
 git -C "$repo_root" add --all -- \
   "$VENDOR_REL_DIR" "$MANIFEST_REL_PATH" "$COMPOSE_REL_PATH"
@@ -305,24 +347,22 @@ else
   git -C "$repo_root" commit -m "chore(release): pin miner-fleet ${version}"
 fi
 
-remote="${RELEASE_REMOTE:-}"
-if [[ -z "$remote" ]]; then
-  remote="$(git -C "$repo_root" remote | head -n 1)"
-fi
-[[ -n "$remote" ]] || fail "no git remote is configured, so the release branch cannot be pushed; set RELEASE_REMOTE or add a remote"
+# --- 11. hand back the commands the operator runs next -----------------------
+#
+# Whether a PR is already open is read from GitHub itself, which is the artefact
+# that actually decides it. A re-run after the operator has opened one prints the
+# push alone and names that PR, so a resumed release is never handed an
+# invitation to open a second.
 
-git -C "$repo_root" push --set-upstream "$remote" "$branch"
-
-existing_pr="$(gh pr list --repo "$STORE_REPO_SLUG" --head "$branch" --state open --json number -q '.[0].number' 2>&1)" \
+existing_pr="$(gh pr list --repo "$STORE_REPO_SLUG" --head "$branch" --state open \
+  --json number -q '.[0].number' 2>&1)" \
   || fail "gh pr list --repo ${STORE_REPO_SLUG} --head ${branch} failed: ${existing_pr}"
 
-if [[ -n "$existing_pr" ]]; then
-  printf 'release: PR #%s is already open for %s — branch updated in place, no duplicate opened\n' \
-    "$existing_pr" "$branch"
-else
-  gh pr create --repo "$STORE_REPO_SLUG" --head "$branch" \
-    --title "chore(release): pin miner-fleet ${version}" \
-    --body "Pins ${UPSTREAM_IMAGE}:${version}@${digest}.
+# An UNQUOTED heredoc, so this run's own values interpolate. The backticks are
+# escaped because they are prose in the body, not command substitution here; the
+# gate sentence is the one part built rather than written (render_gate_list).
+pr_body="$(cat <<PR_BODY
+Pins ${UPSTREAM_IMAGE}:${version}@${digest}.
 
 The digest is the multi-arch INDEX digest read from the registry's top-level \`Digest:\` line, never a per-platform manifest digest (DECISIONS.md entry 4).
 
@@ -330,7 +370,28 @@ The digest is the multi-arch INDEX digest read from the registry's top-level \`D
 
 The deployment contract at tag v${version} was asserted against \`${COMPOSE_REL_PATH}\` before any file was written, and is vendored at \`$(vendor_rel_path "$version" "$VENDOR_CONTRACT_NAME")\`.
 
-Verified after the write by \`check-version-drift.sh\`, \`check-release-notes-drift.sh\` and \`check-deploy-contract.sh\`."
+Verified after the write by $(render_gate_list).
+PR_BODY
+)"
+
+printf '\nrelease: %s is committed on branch %s. NOTHING has been pushed.\n' "$version" "$branch"
+printf 'release: run the push yourself, so every push-time gate evaluates this commit (DECISIONS.md entry 16):\n\n'
+printf '  git -C %q push --set-upstream %q %q\n\n' "$repo_root" "$remote" "$branch"
+
+if [[ -n "$existing_pr" ]]; then
+  printf 'PR #%s is already open for %s — the push updates it in place, so do not open a second one.\n' \
+    "$existing_pr" "$branch"
+else
+  cat <<NEXT
+Then open the PR:
+
+  gh pr create --repo ${STORE_REPO_SLUG} --head ${branch} \\
+    --title "chore(release): pin miner-fleet ${version}" \\
+    --body "\$(cat <<'PR_BODY'
+${pr_body}
+PR_BODY
+)"
+NEXT
 fi
 
-printf 'release: done — %s pinned on branch %s\n' "$version" "$branch"
+printf '\nrelease: done — %s prepared on branch %s, ready for the push above\n' "$version" "$branch"

@@ -71,8 +71,8 @@ section first; it ends with a mandatory artefact verification that gates this
 store bump. Do not begin here.
 
 Once miner-fleet has published `X.Y.Z`, has a **GitHub Release** for `vX.Y.Z`,
-and its tagged tree carries `deploy/contract.json`, the whole store-side
-procedure is one command, run from a clean checkout of this repo:
+and its tagged tree carries `deploy/contract.json`, the store-side procedure
+starts with one command, run from a clean checkout of this repo:
 
 ```bash
 bash scripts/release.sh X.Y.Z
@@ -108,15 +108,29 @@ In order, it:
    `releaseNotes` block in the same file, the image tag *and* `@sha256:` digest
    in `pipfox-miner-fleet/docker-compose.yml`, and both fetched artefacts into
    `upstream/vX.Y.Z/`, removing the previous version's directory.
-7. **Re-runs `check-version-drift.sh`, `check-release-notes-drift.sh`,
-   `check-deploy-contract.sh` and `check-secret-leak.sh`** against the tree it
-   just wrote.
-8. **Opens the PR** on branch `release-X.Y.Z`. Re-running for the same version
-   after a mid-sequence failure resumes and updates the open PR rather than
-   opening a second one.
+7. **Re-runs every gate in `RELEASE_GATES`** — the list declared once in
+   `scripts/lib/repo-context.sh`, which is also the list this document's
+   recovery path runs in § 3.1 step 5 — against the tree it just wrote.
+8. **Commits the bump on branch `release-X.Y.Z`, and stops there.** It does not
+   push and it does not open the PR. The push-time gates evaluate whatever is
+   HEAD when they fire, and they fire when the driver is *invoked* — before the
+   commit exists — so a push from inside it would carry a commit nothing had
+   validated at its own SHA (DECISIONS.md entry 16). Re-running for the same
+   version after a mid-sequence failure rewrites the same bytes and makes no
+   second commit.
 
-Then finish by hand:
+Then finish by hand. The driver prints each of the first two commands with this
+run's own values already filled in — copy them from its output rather than
+retyping them:
 
+- **Push the branch**, with `git -C <repo> push --set-upstream <remote>
+  release-X.Y.Z`. This is the step every push-time gate runs against, and it
+  evaluates the commit the driver actually made.
+- **Open the PR** with the `gh pr create` command the driver printed; its body is
+  composed from the run that just happened, down to the gates that verified it.
+  Re-running the driver once the PR is open prints the push alone and names the
+  open PR instead, so a resumed release is never handed an invitation to open a
+  second one.
 - **Merge the PR.** The merge to `main` is what publishes the release; umbreld
   polls `main`.
 - **Wait up to 5 minutes**, then confirm the Update button appears in the Umbrel
@@ -189,13 +203,15 @@ pass before the push.
      "$(vendor_rel_path "$version" "$VENDOR_NOTES_NAME")" "$NOTES_BLOCK_INDENT"
    ```
 
-5. **Run the gates locally** before pushing:
+5. **Run the gates locally** before pushing. Which gates those are comes from
+   `RELEASE_GATES` in `scripts/lib/repo-context.sh`, exported by the `source` in
+   step 3 — the same declaration the driver reads, so this hand path is verified
+   by exactly the set a driver-cut release is:
 
    ```bash
-   bash scripts/check-version-drift.sh
-   bash scripts/check-release-notes-drift.sh
-   bash scripts/check-deploy-contract.sh
-   bash scripts/check-secret-leak.sh
+   for gate in "${RELEASE_GATES[@]}"; do
+     bash "scripts/${gate}.sh"
+   done
    ```
 
    Running them together matters: `check-release-notes-drift.sh` is the only one
@@ -239,9 +255,10 @@ other than `linux/amd64`, or the amd64 entry is missing. This is a miner-fleet
 release defect — fix it there and cut a new patch release. Do not work around it
 here.
 
-**Roll back.** Run `bash scripts/release.sh <previous-version>` and merge the PR
-it opens. Umbrel treats it as an update like any other. The script re-resolves
-that version's digest from the registry and re-vendors that version's Release
+**Roll back.** Run `bash scripts/release.sh <previous-version>`, then push the
+branch it prepares and merge the PR you open from it, exactly as § 3 describes.
+Umbrel treats it as an update like any other. The script re-resolves that
+version's digest from the registry and re-vendors that version's Release
 body and contract, so the roll-back is a real, gate-checked bump rather than a
 partial revert — which matters because the gates fail closed on a vendored
 directory that does not name the pinned version. If the script cannot run, § 3.1

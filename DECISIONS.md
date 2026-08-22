@@ -16,15 +16,16 @@ crash loop caused by that entry's original, unverified claim about who creates
 and owns the bind-mount source. That same PR appended entry 9, recording the
 gate it added to enforce the `server` service's hardening mechanically.
 
-Entries 10-15 are appended by the PR closing `#11` — the PR that added the
+Entries 10-16 are appended by the PR closing `#11` — the PR that added the
 release driver `scripts/release.sh` and the fail-closed gates beside it
 (`scripts/check-release-notes-drift.sh`, `scripts/check-deploy-contract.sh`,
 `scripts/check-secret-leak.sh`). They record, in order: where the listing's
 release notes come from, how they are spelled, which direction the
 compose-versus-contract relationship runs in, the single policy that keeps the
 networked gates off the network, why the release-PR review exemption named in
-`#11`'s scope is not built in this repo, and where the credential-leak control
-lives and what it deliberately does not refuse.
+`#11`'s scope is not built in this repo, where the credential-leak control
+lives and what it deliberately does not refuse, and where the driver stops —
+at the commit, with the push left to the operator.
 
 ---
 
@@ -655,3 +656,69 @@ second scanner. Or the operator-facing text stops being copied from a private
 repo, which would remove the asymmetry this entry exists for; the gate would
 still be worth its cost, so it would need a new reason rather than an automatic
 removal.
+
+---
+
+## 16. The release driver prepares and commits the bump; the operator pushes it
+
+**Statement.** `scripts/release.sh` resolves the digest, fetches and vendors both
+upstream artefacts, rewrites the manifest and the compose, re-runs every gate in
+`RELEASE_GATES` against what it wrote, commits the result on branch
+`release-X.Y.Z` — and STOPS. It does not run `git push` and it does not run
+`gh pr create`. It ends by printing the exact push command and, when no PR is
+open for the branch yet, the exact `gh pr create` command with the body composed
+from the run that just happened. The operator runs both. DEPLOY.md § 3 documents
+the procedure in that shape.
+
+**Why.** A push issued from inside the driver carries a commit that nothing has
+validated at its own SHA. The push-time gates are PreToolUse gates: they fire
+when a command is INVOKED, and they evaluate HEAD as it stands at that moment. On
+a release-driver invocation they therefore evaluate the commit that was HEAD
+BEFORE the bump — and the driver then creates a NEW commit and pushes that one.
+No local-CI marker covers it, no in-container run has seen it, and of the
+thirteen steps in `.local-ci.yml` only the gates in `RELEASE_GATES` have run
+against it, none of them a test suite. Handing the push back puts the commit
+through the ordinary gated path, where every gate evaluates the commit that is
+actually being pushed. `INVARIANTS.md` § Local CI Equivalence — every command any
+workflow runs must have run locally, successfully, AT THE EXACT COMMIT BEING
+PUSHED — is the rule that decides this, and it is system-wide.
+
+**Why this knowingly does not deliver `#11`'s exp-108 as written.** That
+acceptance criterion asks for a driver that "then opens the PR", and exp-109 that
+a re-run not open a duplicate. An issue-level acceptance criterion does not
+outrank a system-wide invariant; when the two collide, the criterion is the thing
+that is wrong. What exp-109 was protecting is kept, and is stronger than it was:
+the driver cannot open a duplicate PR because it opens none at all, and a re-run
+still detects the work already done by READING real artefacts rather than a state
+file — the index against HEAD decides whether a second commit is needed, and
+GitHub's own open-PR list decides whether the hand-off prints the create command
+or names the PR that is already open.
+
+**The rejected alternative.** Have the driver run the thirteen-step in-container
+validation itself, then push. It is refused twice over, either half sufficient.
+It would copy the push gate's `docker build` plus `docker run` recipe into a repo
+that cannot reach the codespace helper owning it — the duplicate-derivation leak
+`INVARIANTS.md` § Encapsulation names. And it would still leave every OTHER
+push-time gate evaluating the pre-commit state, so it would not fix the thing it
+was built for.
+
+**The over-classification this leaves, named rather than left to be found.** The
+codespace estate classifies any `*/release.sh` invocation as a push obligation
+(its cs#1790 decision), because the two drivers that motivated that rule push
+from inside themselves. This one no longer does, so an agent-run
+`bash scripts/release.sh X.Y.Z` now demands a target and a marker on behalf of a
+command that pushes nothing. cs#1790's own revisit clause names this exact case
+and offers two resolutions: confirm the loud block is acceptable for the script,
+or rename it. The block is accepted. It is loud, it fails safe, it carries its
+own resolution message, and DEPLOY.md § 3 documents this driver as an operator
+command run from a terminal, where no PreToolUse gate is involved at all. A
+rename would buy nothing and would cost every reference to the script in this
+repo's docs, tests and CI step set.
+
+**Revisit if.** The push-time gates gain a way to evaluate a commit created
+DURING the invocation that triggered them — the driver could then push what it
+had just made and still be gated on it, and exp-108 could be delivered as
+written. Or this repo's release stops being a two-file bump verified by a handful
+of gates and grows a sequence long enough that handing the operator two commands
+costs more than it buys; the answer then is a gated push step of the driver's
+own, not a push buried inside the step that creates the commit.

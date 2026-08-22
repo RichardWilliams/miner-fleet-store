@@ -5,15 +5,17 @@
 # Every case builds its own miniature store repo under the harness scratch dir —
 # the driver, the three gates it runs, the libraries they source, an app
 # manifest and compose file pinned at a previous version, and a git work tree
-# with a bare local remote to push to (codespace docs/testing-standards.md
-# § 4.1, hermetic fixtures).
+# with a bare local remote (codespace docs/testing-standards.md § 4.1, hermetic
+# fixtures). The remote is there to be asserted EMPTY: the driver commits and
+# stops, and a bare repo beside the fixture is what makes "it pushed nothing"
+# checkable against a real artefact rather than against the driver's own words.
 #
 # `docker` and `gh` are STUBBED through a FAKE_BIN directory prepended to PATH,
 # and both stubs FAIL CLOSED (exit 64) on any invocation they were not built to
 # answer — including a wrong `--repo` slug, a wrong tag, or a wrong API path
 # (§ 3.1 fail-closed stubs). No case can silently reach a real registry, a real
 # GitHub API, or the network. The `git` calls are real, against a bare repo
-# created beside the fixture, so the branch-and-push path is exercised without
+# created beside the fixture, so the branch-and-commit path is exercised without
 # leaving the machine.
 #
 # The stubs read their canned answers from files under the fixture's own
@@ -31,8 +33,9 @@ readonly CONTEXT_LIB="${repo_root}/scripts/lib/repo-context.sh"
 readonly PARSER_LIB="${repo_root}/scripts/lib/manifest_data.py"
 readonly PATTERNS_LIB="${repo_root}/scripts/lib/secret-patterns.sh"
 
-# The app id, the registry coordinate and both GitHub slugs come from the one
-# place that declares them, so no coordinate is written a second time here.
+# The app id, the registry coordinate, both GitHub slugs and the gate list come
+# from the one place that declares them, so nothing is written a second time
+# here.
 [[ -f "$CONTEXT_LIB" ]] || {
   printf 'FATAL: repo context library not found at %s\n' "$CONTEXT_LIB" >&2
   exit 1
@@ -48,13 +51,6 @@ readonly INDEX_DIGEST="sha256:27c16fba762479efa4773aa477ede79e96f67bb633c554baa1
 # it is what the fixture inspect output is built to tempt.
 readonly PLATFORM_DIGEST="sha256:1111111111111111111111111111111111111111111111111111111111111111"
 
-readonly GATES=(
-  check-version-drift
-  check-release-notes-drift
-  check-deploy-contract
-  check-secret-leak
-)
-
 for required in "$SCRIPT_UNDER_TEST" "$COMMON_LIB" "$CONTEXT_LIB" "$PARSER_LIB" \
   "$PATTERNS_LIB"; do
   [[ -f "$required" ]] || {
@@ -62,7 +58,7 @@ for required in "$SCRIPT_UNDER_TEST" "$COMMON_LIB" "$CONTEXT_LIB" "$PARSER_LIB" 
     exit 1
   }
 done
-for gate in "${GATES[@]}"; do
+for gate in "${RELEASE_GATES[@]}"; do
   [[ -f "${repo_root}/scripts/${gate}.sh" ]] || {
     printf 'FATAL: gate not found at %s\n' "${repo_root}/scripts/${gate}.sh" >&2
     exit 1
@@ -292,7 +288,7 @@ make_fixture() {
   cp "$SCRIPT_UNDER_TEST" "${root}/scripts/release.sh"
   chmod +x "${root}/scripts/release.sh"
   local gate=""
-  for gate in "${GATES[@]}"; do
+  for gate in "${RELEASE_GATES[@]}"; do
     cp "${repo_root}/scripts/${gate}.sh" "${root}/scripts/${gate}.sh"
     chmod +x "${root}/scripts/${gate}.sh"
   done
@@ -411,6 +407,30 @@ fi
 printf 'driver named the category and not the credential\n'
 NOECHO
 
+# capture_release — run the driver with the stubs on PATH and save its combined
+# output to the fixture's own .stub/driver.out.
+#
+# assert_case can require a substring to be PRESENT in the output of the command
+# it runs, which covers one string per run. The hand-off has to be asserted on
+# several times over — once per declared gate — and once for a string that must
+# be ABSENT. Saving the output to a file lets each of those be its own case,
+# with `grep` as the command and its exit code as the polarity, rather than
+# re-running the driver for every assertion.
+capture_release() {
+  local root="$1"
+  shift
+  local saved_path="$PATH"
+  export PATH="${root}/fake-bin:${saved_path}"
+  bash "${root}/scripts/release.sh" "$@" > "${root}/.stub/driver.out" 2>&1 || true
+  export PATH="$saved_path"
+}
+
+# The number of commits the driver added on top of the fixture's own main.
+count_release_commits() {
+  printf 'commits on the release branch: %s\n' \
+    "$(git -C "$1" rev-list --count "main..refs/heads/release-${TARGET_VERSION}")"
+}
+
 readonly PR_COUNT_CHECK="${scratch}/count-created-prs.sh"
 cat > "$PR_COUNT_CHECK" <<'COUNT'
 #!/usr/bin/env bash
@@ -438,7 +458,7 @@ run_release 'argument: no argument at all is rejected' 1 'usage' "$root"
 
 # ---------------------------------------------------------------------------
 # THE HAPPY PATH. One run rewrites the version, the image tag and the digest
-# together, vendors both upstream artefacts, and opens exactly one PR.
+# together, vendors both upstream artefacts, commits them — and stops there.
 # ---------------------------------------------------------------------------
 root="$(make_fixture happy_path)"
 run_release 'release: a clean run succeeds' 0 'done' "$root" "$TARGET_VERSION"
@@ -477,18 +497,59 @@ assert_case 'vendor: the new version directory is written' 0 '' \
 assert_case 'vendor: the previous version directory is removed' 1 '' \
   test -d "${root}/${VENDOR_REL_DIR}/v${PREVIOUS_VERSION}"
 
-assert_case 'pr: exactly one PR was opened' 0 'pr create invocations: 1' \
+# ---------------------------------------------------------------------------
+# THE DRIVER STOPS SHORT OF THE PUSH (DECISIONS.md entry 16). The push-time
+# gates fire when the driver is INVOKED and evaluate HEAD as it stands then —
+# the commit BEFORE the bump. A push from inside the driver would therefore
+# carry a SHA nothing had validated, so the driver commits and hands the push
+# back. These four cases assert that against real artefacts: the bare remote
+# beside the fixture, the fixture's own git history, and the stub's log of
+# every `gh pr create` it was asked for.
+# ---------------------------------------------------------------------------
+assert_case 'stop-short: the driver pushed nothing to the remote' 1 '' \
+  git -C "${root}.git" rev-parse --verify --quiet "refs/heads/release-${TARGET_VERSION}"
+
+assert_case 'stop-short: the driver opened no PR' 0 'pr create invocations: 0' \
   bash "$PR_COUNT_CHECK" "${root}/.stub/pr-created.log"
 
-# ---------------------------------------------------------------------------
-# RESUMABLE. A second run for the same version rewrites the same content and
-# finds the open PR rather than opening a second one.
-# ---------------------------------------------------------------------------
-run_release 'resume: a re-run for the same version succeeds' 0 'already open' \
+assert_case 'stop-short: the bump IS committed on the release branch' \
+  0 "chore(release): pin miner-fleet ${TARGET_VERSION}" \
+  git -C "$root" log -1 --format=%s "refs/heads/release-${TARGET_VERSION}"
+
+run_release 'stop-short: the run says nothing has been pushed' 0 'NOTHING has been pushed' \
   "$root" "$TARGET_VERSION"
 
-assert_case 'resume: still exactly one PR' 0 'pr create invocations: 1' \
+run_release 'hand-off: the run prints the push command the operator runs next' \
+  0 'push --set-upstream' "$root" "$TARGET_VERSION"
+
+# ---------------------------------------------------------------------------
+# RESUMABLE, OFF REAL ARTEFACTS. A second run for the same version rewrites the
+# same content, makes no second commit — decided by the index against HEAD, not
+# by anything the first run wrote down — and still pushes and opens nothing.
+# ---------------------------------------------------------------------------
+run_release 'resume: a re-run for the same version succeeds' 0 'no new commit needed' \
+  "$root" "$TARGET_VERSION"
+
+assert_case 'resume: the re-run added no second commit' \
+  0 'commits on the release branch: 1' count_release_commits "$root"
+
+assert_case 'resume: still nothing pushed' 1 '' \
+  git -C "${root}.git" rev-parse --verify --quiet "refs/heads/release-${TARGET_VERSION}"
+
+assert_case 'resume: still no PR opened' 0 'pr create invocations: 0' \
   bash "$PR_COUNT_CHECK" "${root}/.stub/pr-created.log"
+
+# What exp-109 was protecting — a resumed release must not be handed a second
+# PR — is kept, and is read from GitHub's own open-PR list rather than from a
+# state file. Seeding the stub's pr-number is the operator having opened the PR
+# between the two runs.
+printf '77\n' > "${root}/.stub/pr-number"
+run_release 'resume: with the PR already open the driver names it' 0 'already open' \
+  "$root" "$TARGET_VERSION"
+
+capture_release "$root" "$TARGET_VERSION"
+assert_case 'resume: and does not hand back a command that would open a second' \
+  1 '' grep -F 'gh pr create' "${root}/.stub/driver.out"
 
 # ---------------------------------------------------------------------------
 # A MISSING OR EMPTY RELEASE IS A HARD FAILURE, and it leaves the tree alone.
@@ -644,5 +705,66 @@ assert_case 'one declaration: both artefacts land under the redeclared name' 0 '
 
 assert_case 'one declaration: nothing is left under the old spelling' 1 '' \
   test -e "${root}/${VENDOR_REL_DIR}/v${TARGET_VERSION}"
+
+# ---------------------------------------------------------------------------
+# THE HAND-OFF'S GATE SENTENCE IS BUILT FROM THE ONE DECLARATION, NOT TYPED
+# BESIDE IT. The PR body the driver hands back names the gates the run verified
+# with, and a sentence written out there is a second copy of RELEASE_GATES in
+# prose — the copy this replaced had already drifted, naming three gates while
+# the array ran four, having missed check-secret-leak.sh when that gate was
+# added.
+#
+# The first case requires every declared gate to be named. That alone would stay
+# green against a hand-written sentence that happened to agree today, so the
+# second REDECLARES the array in the fixture's own copy of the context library
+# and requires the sentence to follow it — which only a built one can do. The
+# redeclaration is APPENDED: the declarations in that library are plain
+# assignments precisely so a later one supersedes an earlier one, and the driver
+# sources the file once.
+# ---------------------------------------------------------------------------
+root="$(make_fixture hand_off_gate_list)"
+capture_release "$root" "$TARGET_VERSION"
+
+for gate in "${RELEASE_GATES[@]}"; do
+  assert_case "hand-off: the PR body names ${gate}.sh" 0 '' \
+    grep -F "\`${gate}.sh\`" "${root}/.stub/driver.out"
+done
+
+root="$(make_fixture redeclared_gate_list)"
+printf '\nRELEASE_GATES=(\n  check-version-drift\n)\n' \
+  >> "${root}/scripts/lib/repo-context.sh"
+capture_release "$root" "$TARGET_VERSION"
+
+assert_case 'one declaration: the redeclared run still succeeds' 0 '' \
+  grep -F 'release: done' "${root}/.stub/driver.out"
+
+assert_case 'one declaration: the PR body follows a redeclared gate list' 0 '' \
+  grep -F '`check-version-drift.sh`' "${root}/.stub/driver.out"
+
+assert_case 'one declaration: a gate no longer declared is not named' 1 '' \
+  grep -F '`check-secret-leak.sh`' "${root}/.stub/driver.out"
+
+# ---------------------------------------------------------------------------
+# EVERY DECLARED GATE ALSO RUNS AT PUSH TIME. `.local-ci.yml` is the one site
+# naming these gates that can neither read RELEASE_GATES nor be built from it —
+# it is YAML, it can source nothing, and it carries a named step, a timeout and a
+# rationale per gate as well as six test suites. So the agreement is asserted
+# instead of assumed: a gate added to the array and forgotten there would run at
+# bump time and never at push time, which is the silent half of exactly the drift
+# the single declaration exists to end.
+#
+# This case reads the REAL .local-ci.yml at the repo root rather than a fixture
+# copy, because the property is about this repo's own wiring.
+# ---------------------------------------------------------------------------
+local_ci_step_count() {
+  printf 'steps running %s: %s\n' "$1" \
+    "$(grep -cE "^[[:space:]]+run:[[:space:]]+bash[[:space:]]+scripts/${1}\.sh[[:space:]]*$" \
+      "${repo_root}/.local-ci.yml" || true)"
+}
+
+for gate in "${RELEASE_GATES[@]}"; do
+  assert_case "push-time: ${gate}.sh runs as a .local-ci.yml step" \
+    0 "steps running ${gate}: 1" local_ci_step_count "$gate"
+done
 
 report_summary
