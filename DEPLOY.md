@@ -70,8 +70,79 @@ A release starts in **miner-fleet**, not here. Follow that repo's README release
 section first; it ends with a mandatory artefact verification that gates this
 store bump. Do not begin here.
 
-Once miner-fleet has published `X.Y.Z` and you have verified the published
-artefact resolves and is `linux/amd64`-only:
+Once miner-fleet has published `X.Y.Z`, has a **GitHub Release** for `vX.Y.Z`,
+and its tagged tree carries `deploy/contract.json`, the store-side procedure
+starts with one command, run from a clean checkout of this repo:
+
+```bash
+bash scripts/release.sh X.Y.Z
+```
+
+It needs `docker`, `gh`, `git` and `python3` on your PATH and a `gh` that is
+already authenticated. The argument is the version and only ever the version:
+the script refuses a digest argument outright, because it resolves the digest
+itself.
+
+In order, it:
+
+1. **Resolves the multi-arch index digest** from the registry — the top-level
+   `Digest:` line of `docker buildx imagetools inspect`, never one of the
+   indented per-platform entries under `Manifests:` (DECISIONS.md entry 4).
+   Nothing is hand-carried from miner-fleet's workflow log, so this bump can be
+   cut hours later from a different machine.
+2. **Fetches the upstream Release body** for `vX.Y.Z`. A missing Release, an
+   empty body or a `gh` failure stops the run — there is no fall-through to
+   hand-written text (DECISIONS.md entry 10). A body containing markdown
+   (`**`, `[text](url)`, or a leading `#`) is refused with the reason
+   (DECISIONS.md entry 11).
+3. **Fetches `deploy/contract.json` at tag `vX.Y.Z`** — the same version being
+   pinned, never `main`.
+4. **Refuses either fetched artefact if it carries a credential shape** — an AWS
+   access-key ID, a GitHub token, a PEM private-key header or an `sk-` style API
+   key. The refusal names the category and never the matched text, and it runs
+   before anything is written, so the tree is left exactly as it was
+   (DECISIONS.md entry 15).
+5. **Asserts the contract against the current compose before writing anything.**
+   A mismatch stops the run with the tree exactly as it was.
+6. **Writes the bump**: `version` in `pipfox-miner-fleet/umbrel-app.yml`, the
+   `releaseNotes` block in the same file, the image tag *and* `@sha256:` digest
+   in `pipfox-miner-fleet/docker-compose.yml`, and both fetched artefacts into
+   `upstream/vX.Y.Z/`, removing the previous version's directory.
+7. **Re-runs every gate in `RELEASE_GATES`** — the list declared once in
+   `scripts/lib/release-context.sh`, which is also the list this document's
+   recovery path runs in § 3.1 step 5 — against the tree it just wrote.
+8. **Commits the bump on branch `release-X.Y.Z`, and stops there.** It does not
+   push and it does not open the PR. The push-time gates evaluate whatever is
+   HEAD when they fire, and they fire when the driver is *invoked* — before the
+   commit exists — so a push from inside it would carry a commit nothing had
+   validated at its own SHA (DECISIONS.md entry 16). Re-running for the same
+   version after a mid-sequence failure rewrites the same bytes and makes no
+   second commit.
+
+Then finish by hand. The driver prints each of the first two commands with this
+run's own values already filled in — copy them from its output rather than
+retyping them:
+
+- **Push the branch**, with `git -C <repo> push --set-upstream <remote>
+  release-X.Y.Z`. This is the step every push-time gate runs against, and it
+  evaluates the commit the driver actually made.
+- **Open the PR** with the `gh pr create` command the driver printed; its body is
+  composed from the run that just happened, down to the gates that verified it.
+  Re-running the driver once the PR is open prints the push alone and names the
+  open PR instead, so a resumed release is never handed an invitation to open a
+  second one.
+- **Merge the PR.** The merge to `main` is what publishes the release; umbreld
+  polls `main`.
+- **Wait up to 5 minutes**, then confirm the Update button appears in the Umbrel
+  UI and apply it.
+
+### 3.1 Recovery path — the same bump by hand
+
+**This is the recovery path, not the procedure.** Use it only when
+`scripts/release.sh` cannot run — no `docker`, no authenticated `gh`, or a
+machine without python3. It reaches the same end state by hand; the same values
+have to land in the same places, and every gate in `.local-ci.yml` still has to
+pass before the push.
 
 1. **Capture the index digest.** Read the `Digest:` line from:
 
@@ -92,14 +163,69 @@ artefact resolves and is `linux/amd64`-only:
    | `pipfox-miner-fleet/umbrel-app.yml` | `version: "X.Y.Z"` |
    | `pipfox-miner-fleet/docker-compose.yml` | the `image:` tag **and** `@sha256:` digest |
 
-3. **Refresh `releaseNotes`** in `umbrel-app.yml`. This is operator-facing text
-   shown in the Umbrel UI — write what changed, in plain language.
+3. **Vendor the two upstream artefacts**, replacing the previous version's
+   directory so exactly one survives — the gates fail closed on a stale or
+   duplicated copy:
 
-4. **Open a PR and merge it.** The merge to `main` is what publishes the release;
-   umbreld polls `main`.
+   The upstream coordinates come from `scripts/lib/repo-context.sh`, which is
+   where this repo declares them once — read them from there rather than typing
+   them a second time. So does the vendored path: `vendor_rel_path` derives the
+   version-encoded directory name that IS the staleness guard, and a
+   hand-typed one is the single value here that could satisfy this step to the
+   letter and still fail step 5. Set `version` once and let the rest follow:
 
-5. **Wait up to 5 minutes**, then confirm the Update button appears in the Umbrel
-   UI and apply it.
+   ```bash
+   source scripts/lib/repo-context.sh
+   version=X.Y.Z
+   rm -rf "${VENDOR_REL_DIR:?}"/*/
+   mkdir -p "$(vendor_rel_path "$version")"
+   gh release view "v${version}" --repo "$UPSTREAM_REPO_SLUG" --json body -q .body \
+     > "$(vendor_rel_path "$version" "$VENDOR_NOTES_NAME")"
+   gh api -H "Accept: application/vnd.github.raw" \
+     "repos/${UPSTREAM_REPO_SLUG}/contents/${UPSTREAM_CONTRACT_PATH}?ref=v${version}" \
+     > "$(vendor_rel_path "$version" "$VENDOR_CONTRACT_NAME")"
+   ```
+
+   The `v${version}` in the two `gh` invocations is miner-fleet's own tag, not
+   this repo's directory name, which is why it stays spelled out here.
+
+4. **Write `releaseNotes` from the vendored body**, rather than retyping it.
+   The listing is a copy of the Release, never a second original, and a
+   hand-indented `>-` block is exactly where a copy goes wrong. The block indent
+   comes from `$NOTES_BLOCK_INDENT`, exported by the `source` in step 3, for the
+   same reason the coordinates do — it is declared once, in
+   `scripts/lib/repo-context.sh`, and the drift gate re-emits at whatever that
+   file says:
+
+   ```bash
+   python3 scripts/lib/manifest_data.py set-block \
+     pipfox-miner-fleet/umbrel-app.yml releaseNotes \
+     "$(vendor_rel_path "$version" "$VENDOR_NOTES_NAME")" "$NOTES_BLOCK_INDENT"
+   ```
+
+5. **Run the gates locally** before pushing. Which gates those are comes from
+   `RELEASE_GATES` in `scripts/lib/release-context.sh` — the same declaration
+   the driver reads, so this hand path is verified by exactly the set a
+   driver-cut release is. That library holds the release procedure's own
+   knowledge and declares no coordinate, so it is a second `source` rather than
+   part of step 3's:
+
+   ```bash
+   source scripts/lib/release-context.sh
+   for gate in "${RELEASE_GATES[@]}"; do
+     bash "scripts/${gate}.sh"
+   done
+   ```
+
+   Running them together matters: `check-release-notes-drift.sh` is the only one
+   that refuses a stale second `upstream/vX.Y.Z/` directory, and
+   `check-deploy-contract.sh` would go on reading the pinned one and pass.
+
+6. **Open a PR and merge it.** The merge to `main` is what publishes the
+   release; umbreld polls `main`.
+
+7. **Wait up to 5 minutes**, then confirm the Update button appears in the
+   Umbrel UI and apply it.
 
 ---
 
@@ -132,10 +258,14 @@ other than `linux/amd64`, or the amd64 entry is missing. This is a miner-fleet
 release defect — fix it there and cut a new patch release. Do not work around it
 here.
 
-**Roll back.** Set `version` and the image reference back to the previous
-release's values and merge. Umbrel treats it as an update like any other. Keeping
-the previous release's tag and digest in the PR description of each release bump
-makes this a copy-paste rather than an archaeology exercise.
+**Roll back.** Run `bash scripts/release.sh <previous-version>`, then push the
+branch it prepares and merge the PR you open from it, exactly as § 3 describes.
+Umbrel treats it as an update like any other. The script re-resolves that
+version's digest from the registry and re-vendors that version's Release
+body and contract, so the roll-back is a real, gate-checked bump rather than a
+partial revert — which matters because the gates fail closed on a vendored
+directory that does not name the pinned version. If the script cannot run, § 3.1
+is the same roll-back by hand.
 
 **The store URL will not add, or the app never appears.** Confirm the repo is
 public and that `umbrel-app-store.yml` is at the repo root. Then confirm the app
@@ -255,6 +385,40 @@ release moves `umbrel-app.yml`'s `version`, the compose `image:` tag **and**
 Shipping the volume before the writing image declares unused storage; shipping the
 image before the volume resets data on every update. `scripts/check-version-drift.sh`
 enforces the manifest-vs-compose-tag half at push time.
+
+**`releaseNotes` is a copy of the upstream Release, never authored here**
+(entry 10), and it is **plain prose with no markdown** (entry 11) because
+community-store pages bypass the markdown renderer while the updates dialog does
+not — the same string would look broken on one surface and fine on the other.
+`scripts/check-release-notes-drift.sh` enforces the copy at push time. Do not
+"improve" the listing text here; improve the Release body upstream and re-run
+the release script.
+
+**This repo asserts the compose against the upstream deployment contract, and
+never generates the compose from it** (entry 12). The container port, the health
+path and the data-directory mount target are facts miner-fleet owns;
+`scripts/check-deploy-contract.sh` checks the compose still satisfies them at the
+pinned tag. The direction is permanent — a generator would flatten the Umbrel
+packaging contract and the explanatory comments this compose file carries.
+
+**The two networked reads happen once, in the release driver** (entry 13). Both
+gates above compare against artefacts vendored under `upstream/vX.Y.Z/` rather
+than calling the network, so neither can fail on an unavailable network — and a
+stale or missing vendored copy fails them closed.
+
+**Four vendor-prefixed credential shapes are refused before anything is published
+from this repo** (entry 15) — an AWS access-key ID, a GitHub token, a PEM
+private-key header and an `sk-` style API key. They catch the likeliest
+accidental paste, not every secret that could exist, so read them as four named
+shapes rather than as a guarantee. The text in `releaseNotes` and the prose in
+the vendored contract are written by a human in a PRIVATE repo and copied into
+this PUBLIC one, where the history is permanent. `scripts/release.sh` refuses either fetched artefact before writing,
+and `scripts/check-secret-leak.sh` refuses the same shapes at push time over the
+files a release bump writes — the driver covers the automated path, the gate
+covers the § 3.1 hand path. Neither prints the matched text. Private-range and
+loopback IP literals are deliberately NOT among the refused shapes: this app
+sweeps the operator's own LAN, so `192.168.x.x` in operator guidance is
+necessary prose, not a leak. Do not "tighten" the gate by adding them.
 
 ---
 

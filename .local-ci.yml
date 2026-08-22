@@ -20,8 +20,8 @@
 # divergence INVARIANTS.md § Local CI Equivalence exists to prevent.
 #
 # This repo ships YAML manifests and shell, not an application: there is no
-# lint, type-check, or build step to run. The two steps below are its full
-# validation surface.
+# lint, type-check, or build step to run. Its validation surface is the set of
+# fail-closed gates below, each paired with its own test suite.
 
 steps:
   # The store-side half of the version-drift chain. miner-fleet's
@@ -66,3 +66,65 @@ steps:
   - name: test-compose-hardening
     run: bash tests/test-check-compose-hardening.sh
     timeout: 120
+
+  # The listing half of the release chain. `releaseNotes` is a copy of the
+  # upstream GitHub Release body, and a copy nothing checks silently becomes a
+  # second, divergent original — two pieces of operator-facing text with nothing
+  # tying them together (DECISIONS.md entry 10). The comparison is against the
+  # artefact scripts/release.sh vendored at bump time, so this step needs no
+  # network (DECISIONS.md entry 13).
+  - name: release-notes-drift
+    run: bash scripts/check-release-notes-drift.sh
+    timeout: 60
+
+  # That gate's own tests. They also pin the folded-scalar round trip both the
+  # gate and the release driver depend on: a `>-` scalar is lossy, so an emitter
+  # that drifted would either wave real drift through or block a byte-perfect
+  # body.
+  - name: test-release-notes-drift
+    run: bash tests/test-check-release-notes-drift.sh
+    timeout: 180
+
+  # The compose declares three facts the upstream repo owns — the container
+  # port, the health path and the data-directory mount target. Without this the
+  # first symptom of an upstream change is a crash loop on the operator's box,
+  # with nothing in this repo's diff to explain it. The contract is read at the
+  # pinned tag from the vendored copy, so this step needs no network either.
+  - name: deploy-contract
+    run: bash scripts/check-deploy-contract.sh
+    timeout: 60
+
+  # That gate's own tests, including the required-environment-key case driven by
+  # a synthetic contract: the shipped required set is empty, so a case built on
+  # the real contract would assert over an empty loop and pass for the wrong
+  # reason.
+  - name: test-deploy-contract
+    run: bash tests/test-check-deploy-contract.sh
+    timeout: 180
+
+  # The privacy half of the release chain. The listing text and the vendored
+  # contract prose are written by a human in a PRIVATE repo and copied into this
+  # PUBLIC one, whose history is permanent. scripts/release.sh refuses a
+  # credential shape in either fetched artefact before it writes, but the driver
+  # is not the only way into the tree: DEPLOY.md § 3.1's hand path never runs it,
+  # and an edit that changes the manifest and the vendored copy together
+  # satisfies release-notes-drift. This is the same refusal at the point the tree
+  # becomes public (DECISIONS.md entry 15).
+  - name: secret-leak
+    run: bash scripts/check-secret-leak.sh
+    timeout: 60
+
+  # That gate's own tests, including the case that pins what is deliberately NOT
+  # refused: a private-range subnet literal is necessary operator guidance in
+  # this repo, and a check that blocked it would block correct releases.
+  - name: test-secret-leak
+    run: bash tests/test-check-secret-leak.sh
+    timeout: 120
+
+  # The release driver's own tests. It is the only thing in this repo that talks
+  # to the registry and to GitHub, so its stubs fail closed and its fixtures are
+  # complete miniature repos — a regression here would surface as a bad pin on
+  # the operator's box rather than as a red step.
+  - name: test-release
+    run: bash tests/test-release.sh
+    timeout: 300

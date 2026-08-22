@@ -20,6 +20,42 @@
 # What this image IS used for: the base provides bash and the runner that reads
 # .local-ci.yml, which is what the validation steps need. Restore the template's
 # npm shape only if this repo ever gains real Node dependencies.
+#
+# THE ONE ADDED LAYER — python3-yaml. The gates read the app manifest, the
+# compose file and the vendored deployment contract with a real parser rather
+# than by grepping structured documents. The base image carries python3 but no
+# YAML parser at all, and carries neither `jq` nor `yq`, so python3 plus PyYAML
+# is the only parser both this image and the operator's machine are guaranteed
+# to have. Installed from apt rather than pip because the base ships a
+# distribution python3, and the lists are cleaned in the same layer so the image
+# does not carry an apt cache.
+#
+# THE VERSION IS PINNED, and the pin is load-bearing rather than tidiness. The
+# base above is digest-pinned so that local and CI are identical BY
+# CONSTRUCTION, which is the whole of INVARIANTS.md § Local CI Equivalence; an
+# unpinned `apt-get install` on top of it resolves against Ubuntu's live archive
+# at build time, so two builds of this same file can land different PyYAML
+# versions. PyYAML is what `scripts/lib/manifest_data.py`'s folded-scalar
+# emitter runs on, and `scripts/release.sh` and
+# `scripts/check-release-notes-drift.sh` share that emitter — so a folding
+# change between versions gives the drift gate the same wrong-against-wrong
+# blindness it exists to prevent, except split across two machines: the gate
+# passes on each while they write different bytes into the manifest.
+#
+# 6.0.1-2build2 is what the pinned base's noble/main resolves to, verified
+# identical on arm64 and amd64 so the pin holds for both the operator's machine
+# and the amd64 CI runner.
+#
+# WHEN UBUNTU DROPS THIS VERSION THE BUILD WILL FAIL, LOUDLY. That is the
+# correct behaviour and it is not a defect to route around: do NOT unpin, and
+# do NOT float the version to make the red go away. Either resolve the new
+# version the pinned base offers and update the pin here, or move PyYAML into
+# the shared node-ci base image, where its own digest pin guarantees the version
+# for every repo at once. Both keep the by-construction identity; unpinning
+# trades it for a green build.
 FROM ghcr.io/richardwilliams/node-ci:v0.1.3@sha256:5409e3507f25fa391f9b19cb827ffb818808931b166802881f8dc7ee7a22fc92
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3-yaml=6.0.1-2build2 \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY . .

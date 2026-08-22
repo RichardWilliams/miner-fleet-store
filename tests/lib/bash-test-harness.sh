@@ -54,6 +54,41 @@ assert_case() {
   passes=$(( passes + 1 ))
 }
 
+# redeclare_vendor_dir_name <fixture-context-lib> <prefix> — rewrite the ONE
+# declaration of the vendored artefact directory name inside a fixture's own
+# copy of scripts/lib/repo-context.sh.
+#
+# It exists so a case can require the script under test to FOLLOW the
+# declaration rather than a spelling of its own. `vendor_dir_name` is compared
+# against a directory found on disk as well as used to build the paths inside
+# it, so a join re-inlined at any ONE of those sites leaves every fixture that
+# spells the name the current way green — the drift would be invisible until a
+# release read the wrong artefacts. A fixture that redeclares the name goes red
+# the moment a site stops following it.
+#
+# This is repo-context knowledge shared by three suites rather than knowledge of
+# any one check, which is why it lives beside the other shared machinery instead
+# of being written out three times.
+#
+# A rewrite that matched nothing would turn every case built on it into a case
+# that asserts nothing, so a marker that is not present exactly once is FATAL.
+redeclare_vendor_dir_name() {
+  local lib="$1" prefix="$2"
+  local marker="printf 'v%s'"
+  local occurrences=0
+  occurrences="$(grep -cF "$marker" "$lib" || true)"
+  if (( occurrences != 1 )); then
+    printf 'FATAL: expected exactly one %q in %s, found %d\n' "$marker" "$lib" "$occurrences" >&2
+    exit 1
+  fi
+  # A temp file plus a copy back, rather than `sed -i`, which is a GNU
+  # extension.
+  local rewritten="${lib}.redeclared"
+  sed "s|printf 'v%s'|printf '${prefix}%s'|" "$lib" > "$rewritten"
+  cat "$rewritten" > "$lib"
+  rm -f "$rewritten"
+}
+
 # Last statement of every suite: print the tally and exit non-zero on failures.
 report_summary() {
   printf '\n%d passed, %d failed\n' "$passes" "$failures"

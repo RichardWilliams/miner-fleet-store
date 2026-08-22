@@ -3,7 +3,7 @@ id: pipfox-miner-fleet
 name: Miner Fleet
 tagline: Manage your Bitaxe and NerdQAxe++ miners from one dashboard
 category: bitcoin
-version: "0.2.0"
+version: "0.3.0"
 port: 3007
 description: >-
   Miner Fleet is a self-hosted manager for open-source Bitcoin ASIC miners
@@ -25,20 +25,27 @@ description: >-
   This release is an early one: it ships the service, its health endpoint and its
   packaging. Discovery, telemetry and rollout arrive in subsequent releases.
 releaseNotes: >-
-  The fleet is live. This release turns the skeleton into a working manager: it
-  discovers your Bitaxe / NerdQAxe++ boards on the network, polls their
-  telemetry, and shows hashrate, temperature, power and shares on one dashboard.
+  Miner Fleet 0.3.0
 
 
-  Its inventory and samples are now stored in a persistent data volume, so they
-  survive app updates (an uninstall still clears them).
+  Firmware versions are now visible across the fleet. Each board shows the firmware
+  it is running alongside the latest release published for its model, with an
+  indicator when an update is available. Nothing is written to your miners to
+  collect this: the installed version comes from telemetry the app already reads,
+  and the latest version comes from the public firmware release pages. If your box
+  cannot reach the internet the column stays blank and the rest of the dashboard is
+  unaffected.
 
 
-  ONE SETUP STEP on first run: with no subnet set, discovery sweeps the app's own
-  Docker network instead of your LAN and quietly finds nothing, so set your subnet
-  once. Create app-data/pipfox-miner-fleet/data/config.env on your Umbrel and add a
-  line like MINER_FLEET_SUBNETS=192.168.1.0/24 (your real range), then restart the
-  app. Full steps, and what to check if the fleet stays empty, are in DEPLOY.md § 6.
+  Two fixes to how the app watches your fleet:
+
+    - Warnings now fire for boards found by network discovery. Samples taken on the
+      discovery path were stored without being checked against the warning rules,
+      so any warning that depends on a value changing over time stayed silent for
+      those boards.
+
+    - The app now runs a single polling loop. Three were running in one process
+      against the same database, repeating the same work every cycle.
 developer: Pipfox
 submitter: Pipfox
 website: https://github.com/RichardWilliams/miner-fleet-store

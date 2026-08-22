@@ -19,11 +19,14 @@ set -euo pipefail
 script_dir="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -P "${script_dir}/.." && pwd)"
 
-readonly APP_ID="pipfox-miner-fleet"
-compose="${repo_root}/${APP_ID}/docker-compose.yml"
-
 # fail() is shared with the sibling gates — see scripts/lib/check-common.sh.
 source "${script_dir}/lib/check-common.sh"
+# The app id, the compose file's repo-relative path and the trailing-comment
+# shape every line pattern here ends with are declared once — see
+# scripts/lib/repo-context.sh and INVARIANTS.md § Encapsulation.
+source "${script_dir}/lib/repo-context.sh"
+
+compose="${repo_root}/${COMPOSE_REL_PATH}"
 
 # Guard order: existence, then readability, before any parsing — so a permission
 # problem names its real cause instead of falling through to the branch below.
@@ -39,7 +42,6 @@ readonly APP_DATA_TOKEN="\${APP_DATA_DIR}"
 # (`[^[:space:]:]`) so `[:` cannot start a class name.
 readonly APP_DATA_ERE='\$\{APP_DATA_DIR\}'
 readonly LIST_ITEM_ERE='^[[:space:]]*-[[:space:]]+'
-readonly TRAILING_ERE='[[:space:]]*(#.*)?$'
 readonly SUBPATH_ERE='[[:alnum:]._-]+(/[[:alnum:]._-]+)*'
 readonly COMMENT_LINE_ERE='^[[:space:]]*#'
 
@@ -81,14 +83,14 @@ for line in "${declared_lines[@]}"; do
   if [[ "$line" =~ $VOLUME_ERE_UNQUOTED ]] || [[ "$line" =~ $VOLUME_ERE_DQUOTED ]] || [[ "$line" =~ $VOLUME_ERE_SQUOTED ]]; then
     subpath="${BASH_REMATCH[1]}"
     if [[ ! "$subpath" =~ ^${SUBPATH_ERE}$ ]]; then
-      fail "unusable host-side subpath '${subpath}' extracted from ${APP_ID}/docker-compose.yml line '${line}' — expected a relative path of name segments."
+      fail "unusable host-side subpath '${subpath}' extracted from ${COMPOSE_REL_PATH} line '${line}' — expected a relative path of name segments."
     fi
     # `.` and `..` pass SUBPATH_ERE's character class but are relative-path
     # navigation rather than name segments, so they are rejected explicitly.
     IFS='/' read -r -a subpath_segments <<< "$subpath"
     for segment in "${subpath_segments[@]}"; do
       if [[ "$segment" == "." || "$segment" == ".." ]]; then
-        fail "unusable host-side subpath '${subpath}' extracted from ${APP_ID}/docker-compose.yml line '${line}' — segment '${segment}' is a relative-path navigation component, not a name, and could resolve outside ${APP_ID}."
+        fail "unusable host-side subpath '${subpath}' extracted from ${COMPOSE_REL_PATH} line '${line}' — segment '${segment}' is a relative-path navigation component, not a name, and could resolve outside ${APP_ID}."
       fi
     done
     host_subpaths+=("$subpath")
@@ -104,12 +106,12 @@ for line in "${declared_lines[@]}"; do
     continue
   fi
 
-  fail "unrecognised ${APP_DATA_TOKEN} line shape in ${APP_ID}/docker-compose.yml: '${line}'. This check classifies short-form volume entries and long-form env_file path entries; write the line as one of those."
+  fail "unrecognised ${APP_DATA_TOKEN} line shape in ${COMPOSE_REL_PATH}: '${line}'. This check classifies short-form volume entries and long-form env_file path entries; write the line as one of those."
 done
 
 # A token reference with no short-form volume leaves nothing to assert on.
 if (( ${#host_subpaths[@]} == 0 )); then
-  fail "no short-form ${APP_DATA_TOKEN} volume entry found in ${APP_ID}/docker-compose.yml — a mount named only in a comment or an env_file entry declares no bind-mount source."
+  fail "no short-form ${APP_DATA_TOKEN} volume entry found in ${COMPOSE_REL_PATH} — a mount named only in a comment or an env_file entry declares no bind-mount source."
 fi
 
 verified=()
@@ -125,22 +127,22 @@ for i in "${!host_subpaths[@]}"; do
   # entry 8) ships symlinks verbatim, so one committed here reaches the box intact.
   check_path="${repo_root}/${APP_ID}"
   if [[ -L "$check_path" ]]; then
-    fail "bind-mount source contains a symlink: ${APP_ID}/docker-compose.yml declares '${source_line}' but '${APP_ID}' is a symlink, not a real directory. Ship a real directory at ${APP_ID}."
+    fail "bind-mount source contains a symlink: ${COMPOSE_REL_PATH} declares '${source_line}' but '${APP_ID}' is a symlink, not a real directory. Ship a real directory at ${APP_ID}."
   fi
   IFS='/' read -r -a target_segments <<< "$subpath"
   for segment in "${target_segments[@]}"; do
     check_path="${check_path}/${segment}"
     if [[ -L "$check_path" ]]; then
-      fail "bind-mount source contains a symlink: ${APP_ID}/docker-compose.yml declares '${source_line}' but '${check_path#"${repo_root}/"}' is a symlink, not a real directory. Ship a real directory at every component of ${APP_ID}/${subpath}."
+      fail "bind-mount source contains a symlink: ${COMPOSE_REL_PATH} declares '${source_line}' but '${check_path#"${repo_root}/"}' is a symlink, not a real directory. Ship a real directory at every component of ${APP_ID}/${subpath}."
     fi
   done
 
   if [[ ! -e "$target" ]]; then
-    fail "bind-mount source not shipped: ${APP_ID}/docker-compose.yml declares '${source_line}' but ${APP_ID}/${subpath} does not exist in this repo. Docker creates the source root:root at compose up and the container cannot write into it (DECISIONS.md entry 8). Ship ${APP_ID}/${subpath} as a committed directory."
+    fail "bind-mount source not shipped: ${COMPOSE_REL_PATH} declares '${source_line}' but ${APP_ID}/${subpath} does not exist in this repo. Docker creates the source root:root at compose up and the container cannot write into it (DECISIONS.md entry 8). Ship ${APP_ID}/${subpath} as a committed directory."
   fi
 
   if [[ ! -d "$target" ]]; then
-    fail "bind-mount source is not a directory: ${APP_ID}/docker-compose.yml declares '${source_line}', and ${APP_ID}/${subpath} exists but is not a directory. Ship a directory there — umbreld copies the template verbatim."
+    fail "bind-mount source is not a directory: ${COMPOSE_REL_PATH} declares '${source_line}', and ${APP_ID}/${subpath} exists but is not a directory. Ship a directory there — umbreld copies the template verbatim."
   fi
 
   verified+=("${APP_ID}/${subpath}")

@@ -16,6 +16,18 @@ crash loop caused by that entry's original, unverified claim about who creates
 and owns the bind-mount source. That same PR appended entry 9, recording the
 gate it added to enforce the `server` service's hardening mechanically.
 
+Entries 10-17 are appended by the PR closing `#11` — the PR that added the
+release driver `scripts/release.sh` and the fail-closed gates beside it
+(`scripts/check-release-notes-drift.sh`, `scripts/check-deploy-contract.sh`,
+`scripts/check-secret-leak.sh`). They record, in order: where the listing's
+release notes come from, how they are spelled, which direction the
+compose-versus-contract relationship runs in, the single policy that keeps the
+networked gates off the network, why the release-PR review exemption named in
+`#11`'s scope is not built in this repo, where the credential-leak control
+lives and what it deliberately does not refuse, where the driver stops — at
+the commit, with the push left to the operator — and the duplicate-block
+waiver every future release bump re-trips and clears.
+
 ---
 
 ## 1. Store id `pipfox`, app id `pipfox-miner-fleet`, app directory name equal to the app id, compose service named `server`
@@ -374,3 +386,412 @@ what makes a published host port unnecessary), or the app acquires a genuine nee
 for host networking or a retained capability. In either case entries 1, 2 or 6
 change first and this gate follows them — the gate is downstream of those
 decisions, never the reason to keep one.
+
+---
+
+## 10. `releaseNotes` is the upstream GitHub Release body, never authored here
+
+**Statement.** `pipfox-miner-fleet/umbrel-app.yml`'s `releaseNotes` is a copy of
+the `RichardWilliams/miner-fleet` GitHub Release body for the version being
+pinned. It is fetched by `scripts/release.sh`, vendored at
+`upstream/vX.Y.Z/release-notes.txt`, and written into the manifest from that
+file. It is never composed here, never edited here, and never partially
+rewritten here. A missing Release, an empty body, or a `gh` failure stops the
+release; there is no fall-through to hand-written text.
+
+**Why.** The narrative an operator reads has exactly one author, upstream, where
+the change was actually made. Writing it a second time in a packaging manifest
+produces two copies of the same operator-facing text with nothing tying them
+together — and the copy drifts silently, because nothing about a stale listing
+looks wrong. The hard failure is the load-bearing half: a release that could
+quietly proceed on hand-written notes would restore exactly the second-original
+problem the first sentence removes, on precisely the releases where somebody was
+in a hurry. `scripts/check-release-notes-drift.sh` makes the copy checkable at
+push time, so the rule survives the next release rather than resting on whoever
+cuts it remembering this entry.
+
+**Revisit if.** umbrelOS gains a listing field whose content genuinely has no
+upstream equivalent — packaging-only guidance an application Release could not
+sensibly carry — at which point that field is a NEW field with its own source,
+and `releaseNotes` still comes from the Release. Or miner-fleet stops publishing
+GitHub Releases, in which case the authoritative home for the narrative moves and
+this entry names its new location before any listing text is written by hand.
+
+---
+
+## 11. `releaseNotes` is plain prose with no markdown
+
+**Statement.** The release-notes text carries no markdown syntax: no `**`, no
+`[text](url)` links, and no line beginning with `#`. URLs are spelled out in
+prose and lists are written as literal indented `  - ` lines.
+`scripts/release.sh` refuses a body containing any of the three, naming the
+reason, rather than writing it into the manifest.
+
+**Why.** This is a verified property of umbrelOS, not a style preference.
+`getumbrel/umbrel`'s `packages/ui/src/components/markdown.tsx` short-circuits
+when the current path starts with `/community-app-store`: it returns the raw
+string in a plain `whitespace-pre-line` div and bypasses react-markdown
+entirely. A community app's detail page is served under exactly that path, so on
+this app's own store page `**bold**` renders as literal asterisks, a link
+renders as literal brackets and parens, and `## H` renders as literal hashes.
+
+The split is what forces the rule rather than merely suggesting it.
+`packages/ui/src/modules/app-store/updates-dialog.tsx` renders `releaseNotes`
+through the SAME component, but the branch keys on the CURRENT route — so opened
+from outside `/community-app-store` the same string DOES render as markdown. One
+string, two surfaces, two results. Plain prose is the only spelling that is
+correct on both, and it is what the shipped first-party manifests (immich, n8n,
+home-assistant, vaultwarden, transmission, jellyfin, nextcloud) all use.
+
+The corollary is worth stating because it is what makes plain prose readable
+rather than a compromise: `whitespace-pre-line` PRESERVES newlines, so a `>-`
+folded scalar's blank-line-separated paragraphs and more-indented bullet lines
+render as intended on both surfaces.
+
+**Revisit if.** The `isInCommunityAppStore` short-circuit is removed from
+`markdown.tsx` upstream, or the community-store route stops matching it —
+verified by reading that component's source, not by observing that one string
+happened to render acceptably on one screen.
+
+---
+
+## 12. This repo ASSERTS the compose against the upstream deployment contract; it never generates it
+
+**Statement.** `miner-fleet` publishes a generated `deploy/contract.json`
+declaring the container port, the health path, the data-directory environment key
+and its default, and the required environment keys.
+`scripts/check-deploy-contract.sh` reads that contract at the PINNED tag and
+asserts that `pipfox-miner-fleet/docker-compose.yml` still satisfies it. The
+compose is never generated, templated, rewritten or emitted from the contract.
+That direction is permanent, and it is checked rather than merely stated:
+`tests/test-check-deploy-contract.sh` snapshots the compose, runs the gate, and
+re-compares the bytes, on a PASSING run and on a FAILING one — a gate that
+rewrote the compose while asserting against it would fail whichever of those two
+cases it touched.
+
+The gate's unknown-field rule is scoped to the `packagingAffecting` subtree,
+deliberately: an unrecognised field there is a failure naming the field, while
+`documentation.*` and `nonPackagingAffecting.*` are ignored. That is not an
+omission — a non-packaging-affecting fact never requires a coordinated store
+bump, which is precisely what the upstream structural split exists to express,
+and an unscoped reading would fail the gate on every run against the shipped
+contract.
+
+**Why.** The compose file is only half a description of the application. The
+other half is Umbrel packaging contract: the injected `app_proxy` service, the
+`<app-id>_server_1` `APP_HOST` naming rule (entry 1), `${APP_DATA_DIR}`
+interpolation (entries 6 and 7), and the hardening entry 9 enforces. A generator
+fed by an application-side contract cannot know any of that, so generating would
+either drop it or require the contract to grow packaging knowledge that belongs
+here. It would also flatten this file's explanatory comments, which are load-
+bearing: they are the only place the `.gitkeep` mechanism, the digest-pinning
+rule and the env-file reasoning are stated at the point of use.
+
+Asserting keeps each fact owned where it is decided and still catches the drift.
+Before the gate, three values upstream owns were hardcoded here with nothing
+tying them to their source: an upstream rename of the health route, a container
+port change, or a move of the data directory would have kept shipping stale
+values and surfaced as a crash loop on the operator's box, with nothing in this
+repo's diff to explain it — the same failure shape `#8` produced once already.
+
+**Revisit if.** The Umbrel packaging surface this file carries moves somewhere
+else entirely (umbrelOS stops injecting `app_proxy`, or gains a first-class
+manifest field for the mount and the health probe), so that the compose file
+becomes a pure restatement of application facts with no packaging knowledge of
+its own. Generation is worth reconsidering at that point and not before.
+
+---
+
+## 13. Both networked gates read artefacts vendored at bump time, at the repo root
+
+**Statement.** The two facts the new gates check — the upstream Release body and
+the upstream deployment contract — are fetched ONCE, by `scripts/release.sh`, on
+the machine cutting the release, and committed to this repo under
+`upstream/vX.Y.Z/release-notes.txt` and `upstream/vX.Y.Z/contract.json`. Both
+push-time gates are then purely textual comparisons against those committed
+copies: no `gh`, no `docker`, no network call, at gate time, ever. This is ONE
+policy covering BOTH gates, not two independent answers to the same question.
+
+The vendored artefacts live at the REPO ROOT, deliberately not inside
+`pipfox-miner-fleet/`. That directory is the Umbrel app template umbreld rsyncs
+onto the operator's box; provenance artefacts have no business shipping there.
+
+The directory name encodes the version, and the drift gate requires EXACTLY ONE
+directory under `upstream/` whose name matches the manifest's own `version`.
+That is the staleness guard, and it is what makes "fetched at the pinned tag,
+never at main" mechanically checkable with no network at all:
+`scripts/release.sh` removes the previous version's directory when it writes the
+new one, so a bump that forgot to re-vendor, or a stale copy left beside a
+current one, fails the gates closed.
+
+**Why.** `scripts/check-version-drift.sh`'s header already states this repo's
+convention: a push-time gate stays purely textual so it never fails on an
+unavailable network. Both new gates needed a network read, so the convention had
+to be honoured or abandoned — once, for both, rather than twice with two
+different answers.
+
+Vendoring honours it without weakening fail-closed. The alternative — calling the
+network at gate time with a fail-closed network policy — is not available here,
+and that is a fact rather than a preference: the pinned CI image
+(`ghcr.io/richardwilliams/node-ci:v0.1.3`) carries bash, git, grep, sed, node and
+python3, and carries neither `gh` nor `docker` nor a guaranteed network. A gate
+built on a live fetch could only fail open in that container or block every run
+in it. Vendoring moves the one networked read to the one place where the network
+is genuinely available: the operator's machine, at bump time.
+
+**What this does and does not buy — stated plainly.** The live verification
+happens ONCE, in the driver, against the real Release and the real tagged tree.
+Thereafter the gates assert that the committed copies and the manifest agree.
+That is a WEAKER claim than a live re-fetch: it cannot detect an upstream Release
+body edited after the bump, and it trusts that the vendored bytes were fetched by
+the driver rather than hand-written. It is the deliberate price of a gate that
+can never fail on an unavailable network, and the staleness guard above is what
+keeps the weaker claim from decaying into no claim at all.
+
+**Revisit if.** The pinned CI image gains `gh` and a guaranteed network AND a
+live-fetch gate can be shown to fail closed on every network failure mode without
+false-blocking correct work — both conditions, because either alone reintroduces
+the failure this entry avoids. Or an upstream Release body is edited after a bump
+and the divergence causes a real operator-visible problem, which would be the
+receipt that the weaker claim above is not enough.
+
+---
+
+## 14. The release-PR review exemption gate is not built in this repo
+
+**Statement.** `scripts/check-release-pr-scope.sh` — the mechanical, diff-derived
+release-PR review exemption named in `#11`'s scope — is deliberately NOT built
+here, and neither is `tests/test-check-release-pr-scope.sh`. The rule the
+exemption was to express still holds and is recorded by this entry: a release-PR
+review exemption is DIFF-DERIVED, never trust-based. No label, commit-message
+marker, PR-body phrase or environment variable may ever grant one. The decision
+this entry records is about WHERE that rule can be enforced, and the answer is
+not "in this repo's tree".
+
+**Why.** The gate would have no consumer. Reviewer-panel composition is resolved
+entirely in the codespace estate, from the PR body and the closing issues, and
+never from the managed repo's own files: `codespace/hook/reviewer_gate.py` and
+`codespace/scan/reviewer_clean_push.py` read the expected panel exclusively from
+the `## Review config` include lists on the PR body and on the issues it closes.
+Neither reads this repo's tree at all. The codespace's own
+`docs/architecture.md:106` states the same fact from the other side — "There is
+no trigger config, canonical or local."
+
+Composition is additive-only by the cs#1788 decision: a name is added to the
+panel by a rule or by a named signal, and there is no subtractive counterpart for
+a repo-local file to drive. So a gate shipped here would compute a correct
+verdict that nothing reads, on every release PR, forever. That is a speculative
+abstraction — a mechanism built for a consumer that does not exist — and
+codespace `CLAUDE.md` RULE #5 refuses it. Building it and describing the gap in
+the PR body instead would be the same refusal dressed as delivery.
+
+This entry is the FIFTH of the five permanent decisions `#11`'s exp-119 requires
+this PR to record; entries 10-13 carry the other four. What is not built is the
+gate, not the rule — the diff-derived-never-trust-based statement above is the
+record exp-119 asks for, and it is in the diff rather than in a PR body.
+
+**Revisit if.** The codespace estate grows a consumer that reads a repo-local
+exemption signal — a reviewer-gate path that consults the managed repo's tree
+when composing or narrowing the panel. That is a change to the codespace
+reviewer-gate composition model, so it is decided and built THERE; this entry is
+what a future session reads to know that the store-side half was considered,
+scoped, and left unbuilt for a stated reason rather than missed.
+
+---
+
+## 15. The credential-leak control lives in BOTH the release driver and the push-time gates, and refuses shapes rather than addresses
+
+**Statement.** Four vendor-prefixed credential shapes are refused before anything
+is published from this repo: AWS access-key IDs, GitHub tokens (`ghp_`, `gho_`,
+`ghu_`, `ghs_`, `ghr_` and the fine-grained `github_pat_` prefix), PEM
+private-key headers, and `sk-` style API keys. Those four were chosen because
+they catch the likeliest accidental paste into operator-facing text; a secret
+carrying none of their prefixes is not covered, and this entry claims no more
+than the four. They are declared ONCE, in `scripts/lib/secret-patterns.sh`,
+together with the one function that looks for them.
+
+Two consumers share that one declaration:
+
+- `scripts/release.sh` checks both fetched artefacts — the Release body and the
+  deployment contract — while they are still staged, before a byte is written,
+  so a refusal leaves the working tree exactly as it was.
+- `scripts/check-secret-leak.sh` checks the files a release bump writes (the app
+  manifest, the compose file, and everything vendored under `upstream/`) at push
+  time, as a `.local-ci.yml` step.
+
+Every refusal names the CATEGORY and never the matched text.
+
+Both halves of that are tested on both consumers, so this entry records a
+checked property rather than a promise. `tests/test-release.sh` plants a known
+credential-shaped value in each fetched artefact and greps the driver's whole
+failure output for it, and separately snapshots the tree before and after every
+refusal to hold the untouched-tree half; `tests/test-check-secret-leak.sh` does
+the echo half for the push-time gate.
+
+Private-range and loopback IP literals are deliberately NOT refused.
+
+**Why — both places, not one.** The driver is where upstream text ENTERS the
+tree; the push is where it becomes PUBLIC. Those are different events, and a
+control at only one of them leaves the other open. A driver-only check misses
+every hand edit: DEPLOY.md § 3.1 documents the hand path as the supported
+recovery for a machine without `docker` or an authenticated `gh`, and an edit
+that changes the manifest's `releaseNotes` and the vendored copy TOGETHER
+satisfies `check-release-notes-drift.sh` — that gate compares the two against
+each other, not against the Release. A gate-only check would let the driver
+fetch, write, and only then refuse, leaving the credential in the checkout and
+breaking the tree-untouched-on-refusal property the staging design exists for.
+So the control is in both places over one definition of the shapes
+(`INVARIANTS.md` § Encapsulation), covering two different entry points rather
+than restating one check twice.
+
+**Why — the category and never the match.** Printing the matched text would
+disclose the credential a second time, into the operator's terminal, their shell
+history, and the CI log of every run that reproduced the failure. The category
+name is enough to act on and discloses nothing.
+
+**Why — shapes, not addresses.** A private-range or loopback IP check was
+proposed and refused. This application's entire purpose is sweeping the
+operator's own LAN, so its operator-facing text legitimately carries values like
+`MINER_FLEET_SUBNETS=192.168.1.0/24` — the shipped `0.2.0` `releaseNotes` and
+DEPLOY.md § 6 both do. A gate refusing private-range literals would have blocked
+the last release and would block the next one that explains subnet
+configuration. Those addresses are necessary prose in this repo, not a leak, and
+entry 7 already keeps the operator's REAL subnet out of the tree by keeping the
+setting on the box. `tests/test-check-secret-leak.sh` pins the non-refusal with a
+case built on the shipped guidance, so the check cannot be "tightened" into
+blocking correct releases without a red test.
+
+**Revisit if.** A credential shape not in the four above is found in a published
+artefact, upstream or here — the remedy is a new row in
+`scripts/lib/secret-patterns.sh`, which extends both consumers at once, never a
+second scanner. Or the operator-facing text stops being copied from a private
+repo, which would remove the asymmetry this entry exists for; the gate would
+still be worth its cost, so it would need a new reason rather than an automatic
+removal.
+
+---
+
+## 16. The release driver prepares and commits the bump; the operator pushes it
+
+**Statement.** `scripts/release.sh` resolves the digest, fetches and vendors both
+upstream artefacts, rewrites the manifest and the compose, re-runs every gate in
+`RELEASE_GATES` against what it wrote, commits the result on branch
+`release-X.Y.Z` — and STOPS. It does not run `git push` and it does not run
+`gh pr create`. It ends by printing the exact push command and, when no PR is
+open for the branch yet, the exact `gh pr create` command with the body composed
+from the run that just happened. The operator runs both. DEPLOY.md § 3 documents
+the procedure in that shape.
+
+**Why.** A push issued from inside the driver carries a commit that nothing has
+validated at its own SHA. The push-time gates are PreToolUse gates: they fire
+when a command is INVOKED, and they evaluate HEAD as it stands at that moment. On
+a release-driver invocation they therefore evaluate the commit that was HEAD
+BEFORE the bump — and the driver then creates a NEW commit and pushes that one.
+No local-CI marker covers it, no in-container run has seen it, and of the
+thirteen steps in `.local-ci.yml` only the gates in `RELEASE_GATES` have run
+against it, none of them a test suite. Handing the push back puts the commit
+through the ordinary gated path, where every gate evaluates the commit that is
+actually being pushed. `INVARIANTS.md` § Local CI Equivalence — every command any
+workflow runs must have run locally, successfully, AT THE EXACT COMMIT BEING
+PUSHED — is the rule that decides this, and it is system-wide.
+
+**Why this knowingly does not deliver `#11`'s exp-108 as written.** That
+acceptance criterion asks for a driver that "then opens the PR", and exp-109 that
+a re-run not open a duplicate. An issue-level acceptance criterion does not
+outrank a system-wide invariant; when the two collide, the criterion is the thing
+that is wrong. What exp-109 was protecting is kept, and is stronger than it was:
+the driver cannot open a duplicate PR because it opens none at all, and a re-run
+still detects the work already done by READING real artefacts rather than a state
+file — the index against HEAD decides whether a second commit is needed, and
+GitHub's own open-PR list decides whether the hand-off prints the create command
+or names the PR that is already open.
+
+**The rejected alternative.** Have the driver run the thirteen-step in-container
+validation itself, then push. It is refused twice over, either half sufficient.
+It would copy the push gate's `docker build` plus `docker run` recipe into a repo
+that cannot reach the codespace helper owning it — the duplicate-derivation leak
+`INVARIANTS.md` § Encapsulation names. And it would still leave every OTHER
+push-time gate evaluating the pre-commit state, so it would not fix the thing it
+was built for.
+
+**The over-classification this leaves, named rather than left to be found.** The
+codespace estate classifies any `*/release.sh` invocation as a push obligation
+(its cs#1790 decision), because the two drivers that motivated that rule push
+from inside themselves. This one no longer does, so an agent-run
+`bash scripts/release.sh X.Y.Z` now demands a target and a marker on behalf of a
+command that pushes nothing. cs#1790's own revisit clause names this exact case
+and offers two resolutions: confirm the loud block is acceptable for the script,
+or rename it. The block is accepted. It is loud, it fails safe, it carries its
+own resolution message, and DEPLOY.md § 3 documents this driver as an operator
+command run from a terminal, where no PreToolUse gate is involved at all. A
+rename would buy nothing and would cost every reference to the script in this
+repo's docs, tests and CI step set.
+
+**Revisit if.** The push-time gates gain a way to evaluate a commit created
+DURING the invocation that triggered them — the driver could then push what it
+had just made and still be gated on it, and exp-108 could be delivered as
+written. Or this repo's release stops being a two-file bump verified by a handful
+of gates and grows a sequence long enough that handing the operator two commands
+costs more than it buys; the answer then is a gated push step of the driver's
+own, not a push buried inside the step that creates the commit.
+
+---
+
+## 17. The recurring duplicate-block waiver is a permanent, accepted cost of the packaging format
+
+**Statement.** `scan-duplicate-code-blocks` reports the English release-notes
+prose as duplicated between `pipfox-miner-fleet/umbrel-app.yml`'s
+`releaseNotes` and the vendored `upstream/vX.Y.Z/release-notes.txt`. It is
+correct: the two are the same text, deliberately. The recurrence is WIDER than
+a release cadence, and stating it as "every bump" understated it: the scanner
+reads the branch's diff against `main`, so it re-trips on EVERY commit made
+while the branch carries the duplication, whether or not that commit touches
+either duplicated file. Observed directly on this PR's own branch — the commit
+that added the working-tree guard changed neither the manifest nor the vendored
+body and still tripped it. So the waiver is spent once per pre-review run and
+once per push, not once per release, and it is cleared with a per-use
+`--allow-bypass scan-duplicate-code-blocks --reason "…"` waiver each time. That
+recurrence is
+the accepted, permanent cost of packaging an upstream Release body into an
+Umbrel manifest. It is not a defect carried forward and it is not awaiting a
+fix; it is recorded here so the operator cutting the next bump recognises the
+finding as expected rather than rediscovering it as a surprise and reaching for
+a structural change that is not available.
+
+**Why the duplication cannot be removed.** That identity IS the invariant
+`scripts/check-release-notes-drift.sh` asserts — the gate exists precisely
+because the manifest field and the vendored artefact must carry the same text,
+and it fails when they do not. Removing the duplication removes the thing being
+checked. A YAML manifest field cannot call a shared helper, and umbreld reads
+the literal manifest off the box, so there is no include mechanism to route the
+one copy through — the deduplication move available in code has no counterpart
+here. Dropping the vendored copy instead leaves the gate comparing the manifest
+to itself, which asserts nothing. Vendoring a hash of the body rather than the
+body breaks `#11`'s exp-110, which requires the failure message to name BOTH
+values so a drift is diagnosable from the message alone, and it hides the prose
+from the diff — which is the surface `privacy-reviewer` inspects before text
+copied out of a PRIVATE repo reaches a PUBLIC listing.
+
+**Why the obvious remedy is foreclosed.** A path-scoped exemption for
+`upstream/**` in `codespace/scan/duplicate_block.py` was proposed by
+`devils-advocate` at round 1 and refused. Codespace `CLAUDE.md` RULE #4 bans
+excluding files or directories from analysis via config, without exception. It
+would also be the wrong shape even if it were permitted: the scanner is
+codespace-wide, so the exemption would be a permanent GLOBAL exclusion applying
+to every managed repo's `upstream/` path, where the per-use waiver is narrower —
+scoped to one invocation, carrying a written reason, and appending one line to
+`<codespace>/.runtime/scan-duplicate-code-blocks-bypass.log` on each use. The
+recurrence is that logging doing its job, not the waiver failing.
+
+**Receipt.** The waiver was used six times on this PR's own branch by the commit
+that added this entry — once per HEAD-moving fix, since every fix invalidates
+the SHA-pinned pre-review marker and forces the producer to re-run over the same
+two files. Each use is recorded in that bypass log, which is what makes the rate
+visible rather than assumed.
+
+**Revisit if.** umbrel's manifest format gains an include mechanism, so the
+listing can reference the vendored body instead of restating it. Or the drift
+gate can compare the listing against something other than a committed copy
+without losing the fail-closed, zero-network property entry 13 records — at
+which point the vendored artefact, and the duplication with it, has a
+replacement rather than merely a critic.
