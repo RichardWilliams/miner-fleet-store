@@ -3,12 +3,20 @@
 # The one declaration of this repo's GitHub coordinates, of the file paths the
 # release driver and its gates share, and of the patterns derived from them.
 #
-# COORDINATES ONLY. This file's name is scope-neutral because its contents are:
-# identity facts about this repo and derivations from them, nothing procedural.
-# Which gates a release is verified by is derived from no coordinate here, so it
-# is declared in the domain-scoped sibling `scripts/lib/release-context.sh` that
-# INVARIANTS.md § Encapsulation provides for, and a consumer needing both sources
-# both.
+# COORDINATES ONLY — and this header is the ONE place that split is explained.
+# The sibling named below points here rather than restating it, so there is a
+# single copy of the reasoning to keep correct.
+#
+# This file's name is scope-neutral because its contents are: identity facts
+# about this repo and derivations from them, nothing procedural. Which gates a
+# release is verified by is derived from no coordinate here, so it is declared
+# in the domain-scoped sibling `scripts/lib/release-context.sh` that
+# INVARIANTS.md § Encapsulation provides for in the same breath as this file: a
+# "`release-context.sh` (or similarly domain-scoped) sibling library MAY still
+# exist alongside it to hold that repo's own release-specific logic, sourcing
+# the coordinate from here rather than declaring it itself". A consumer needing
+# both sources both. RichardWilliams/miner-fleet carries a library of that name
+# for the same purpose, so the shape is the estate's established one.
 #
 # INVARIANTS.md § Encapsulation states the rule this file exists to satisfy: a
 # managed repo's own tracked code declares its `owner/repo` slug exactly ONCE,

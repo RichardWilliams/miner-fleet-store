@@ -21,11 +21,13 @@
 #     hours later, from another machine, with nothing carried between them.
 #   * It never falls through to hand-written release notes. A missing Release,
 #     an empty body, or a `gh` failure is a hard failure (DECISIONS.md entry 10).
-#   * It never copies a credential out of the private upstream repo into this
-#     public one. Both fetched artefacts are checked against the credential
-#     shapes in `scripts/lib/secret-patterns.sh` while they are still staged,
-#     and a match stops the run naming the CATEGORY and never the matched text
-#     (DECISIONS.md entry 15).
+#   * It refuses either fetched artefact that carries one of FOUR credential
+#     shapes — the set declared in `scripts/lib/secret-patterns.sh`, which is
+#     what it checks and the whole of what it checks. A secret matching none of
+#     those four prefixes is NOT covered; this is a check against the likeliest
+#     accidental paste, not a guarantee that nothing sensitive gets through.
+#     Both artefacts are scanned while still staged, and a match stops the run
+#     naming the CATEGORY and never the matched text (DECISIONS.md entry 15).
 #   * It never writes a byte into the tree before the deployment contract has
 #     been asserted against the compose that is already there, so a mismatch
 #     leaves the working tree exactly as it was.
@@ -130,12 +132,39 @@ if [[ "$version" == *"@"* || "$version" == *"sha256:"* ]]; then
 fi
 [[ "$version" =~ ^${SEMVER_ERE}$ ]] || fail "'${version}' is not a semver of the form X.Y.Z"
 
+# --- the tree this run is about to write must start clean --------------------
+#
+# The refusals in steps 5 and 6 each end by telling the operator the working
+# tree is exactly as it was. That sentence is true of THIS run's own writes by
+# construction — nothing is written before them — but it is a claim about the
+# TREE, and the tree is only untouched if it was clean when this run started.
+#
+# A previous run killed between the tree write (step 8) and the commit (step 10)
+# leaves a bump sitting uncommitted. Without this guard a retry that then failed
+# early would print "nothing has been written — the working tree is exactly as
+# it was" over the top of those leftovers, which is false about the tree the
+# operator is looking at, and the retry would go on to write over them without
+# noticing.
+#
+# The guard makes the claim true by construction rather than narrowing the
+# claim to match what the code happened to do. It is scoped to the three paths
+# this driver writes: unrelated dirt elsewhere in the repo is not its business.
+dirty="$(git -C "$repo_root" status --porcelain -- \
+  "$VENDOR_REL_DIR" "$MANIFEST_REL_PATH" "$COMPOSE_REL_PATH")"
+if [[ -n "$dirty" ]]; then
+  fail "the release driver writes ${VENDOR_REL_DIR}/, ${MANIFEST_REL_PATH} and ${COMPOSE_REL_PATH}, and they are not clean:
+
+${dirty}
+
+This driver refuses to write over an uncommitted change it cannot account for — a run interrupted between writing the tree and committing it leaves exactly this state, and re-running blindly would bury it. Inspect the paths above with 'git -C ${repo_root} diff -- <path>'. If they are a complete bump left by an interrupted run, commit them; if they are unwanted, discard the tracked ones with 'git -C ${repo_root} restore --source=HEAD --staged --worktree -- <path>' and delete any untracked leftovers. Then re-run."
+fi
+
 # --- staging ------------------------------------------------------------------
 #
 # Everything fetched lands here first. The tree is written only after the
-# credential refusal and the contract assertion have both passed, which is what
-# makes "a refusal leaves the tree untouched" literally true rather than merely
-# intended.
+# credential refusal and the contract assertion have both passed, which — with
+# the cleanliness guard above — is what makes "a refusal leaves the tree
+# untouched" literally true rather than merely intended.
 #
 # ONE cleanup handler for this scope (codespace docs/coding-standards.md § 9.3 —
 # a second `trap ... EXIT` here would silently replace it). INT and TERM exit so

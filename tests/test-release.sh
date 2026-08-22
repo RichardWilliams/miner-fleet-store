@@ -576,6 +576,51 @@ assert_case 'resume: and does not hand back a command that would open a second' 
   1 '' grep -F 'gh pr create' "${root}/.stub/driver.out"
 
 # ---------------------------------------------------------------------------
+# CRASH BEFORE COMMIT — the resume case the block above does NOT cover. Every
+# assertion up to here starts from a run that already committed, so the tree is
+# clean and the driver's cleanliness guard is never exercised. A run killed
+# between the tree write (step 8) and the commit (step 10) leaves a complete
+# bump sitting UNCOMMITTED, and that is the state the guard exists for: without
+# it a retry failing early would print "nothing has been written — the working
+# tree is exactly as it was" over the top of those leftovers, and then write
+# over them.
+#
+# The state is reproduced from a REAL run rather than hand-written. Cutting a
+# release and then moving HEAD back one commit while keeping the working tree
+# leaves byte-for-byte what the driver leaves behind when it dies before
+# committing: the new vendored files untracked, the previous version's deleted,
+# and the manifest and compose modified.
+# ---------------------------------------------------------------------------
+root="$(make_fixture crash_before_commit)"
+run_release 'crash-before-commit: the first run commits normally' 0 'done' \
+  "$root" "$TARGET_VERSION"
+git -C "$root" reset --quiet HEAD~1
+
+run_release 'crash-before-commit: a retry refuses to write over the leftovers' \
+  1 'are not clean' "$root" "$TARGET_VERSION"
+run_release 'crash-before-commit: the refusal names the manifest it would bury' \
+  1 'umbrel-app.yml' "$root" "$TARGET_VERSION"
+run_release 'crash-before-commit: the refusal says how to resolve it' \
+  1 'commit them' "$root" "$TARGET_VERSION"
+
+# ORDERING, proven rather than asserted from the source. With the registry stub
+# armed to fail, a driver that reached step 1 would die naming the inspect
+# failure. It dies naming the dirty tree instead, so the guard demonstrably runs
+# before a single network call — which is what makes a dirty tree cost nothing.
+printf 'armed\n' > "${root}/.stub/inspect.fail"
+run_release 'crash-before-commit: the guard fires before the registry is touched' \
+  1 'are not clean' "$root" "$TARGET_VERSION"
+rm -f "${root}/.stub/inspect.fail"
+
+# And the guard is a refusal to proceed blindly, not a dead end: committing the
+# leftovers is one of the two resolutions the message offers, and the same retry
+# then resumes exactly as the clean-tree resume case does.
+git -C "$root" add --all
+git -C "$root" commit --quiet -m "chore(release): pin miner-fleet ${TARGET_VERSION}"
+run_release 'crash-before-commit: committing the leftovers lets the retry resume' \
+  0 'no new commit needed' "$root" "$TARGET_VERSION"
+
+# ---------------------------------------------------------------------------
 # A MISSING OR EMPTY RELEASE IS A HARD FAILURE, and it leaves the tree alone.
 # There is no fall-through to hand-written notes.
 # ---------------------------------------------------------------------------

@@ -35,9 +35,12 @@
 # vendored directory" check is written once, in `check-release-notes-drift.sh`,
 # and it is a property of the SUITE rather than a coupling implemented here:
 # `.local-ci.yml` runs both gates on every push and DEPLOY.md § 3.1 lists both
-# in the hand-edit recovery path, so the stale-sibling case is caught whenever
-# this gate runs. Running this gate ALONE would not catch it, and nothing in the
-# code below claims otherwise.
+# in the hand-edit recovery path, so the stale-sibling case is caught wherever
+# this gate reads a VENDORED contract. Running this gate ALONE would not catch
+# it, and nothing in the code below claims otherwise. `scripts/release.sh`
+# step 6 is exactly that alone invocation — and it is not a gap, because it
+# passes a STAGED contract by path, so no vendored directory is consulted and
+# there is no stale sibling to miss.
 #
 # SCOPE — the `packagingAffecting` subtree, deliberately. An unrecognised field
 # under `packagingAffecting` is a FAILURE naming the field, because a new

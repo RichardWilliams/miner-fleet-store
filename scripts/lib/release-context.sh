@@ -3,34 +3,21 @@
 # The release procedure's own knowledge: the fail-closed gates a release bump is
 # verified by, and the one rendering of that list the driver's hand-off prints.
 #
-# A SIBLING of scripts/lib/repo-context.sh, not a part of it. That file holds
-# this repo's COORDINATES — its GitHub slugs, its registry coordinate, the paths
-# of the files a release rewrites, and the patterns derived from them — at the
-# fixed conventional path INVARIANTS.md § Encapsulation mandates for the
-# `owner/repo` slug, and its name is scope-neutral for exactly that reason. The
-# same invariant provides for this file in the same breath: a
-# "`release-context.sh` (or similarly domain-scoped) sibling library MAY still
-# exist alongside it to hold that repo's own release-specific logic, sourcing
-# the coordinate from here rather than declaring it itself".
+# A SIBLING of scripts/lib/repo-context.sh, not a part of it. THAT FILE'S HEADER
+# OWNS the coordinate-versus-procedure split, the INVARIANTS.md § Encapsulation
+# text behind it, and the clause providing for this file — read it there rather
+# than here. Restating it in both places would be two copies of one rationale,
+# free to drift, in a pair of files whose whole subject is not doing that.
 #
-# Which gate scripts a release is verified by is neither a coordinate nor a
-# derivation from one — it is procedural knowledge about how this repo verifies
-# a release, and it is declared here for that reason.
-# RichardWilliams/miner-fleet carries a scripts/lib/release-context.sh of its
-# own, so this is the estate's established shape rather than a new one.
+# What is true of THIS file and nowhere else: it declares no coordinate and
+# READS none, so it sources nothing. Every value below is a gate-script
+# basename, and a `source` of repo-context.sh would bind a dependency no line
+# uses. A consumer needing both sources both — scripts/release.sh does, and so
+# does DEPLOY.md § 3.1's hand path.
 #
-# It declares no coordinate, and it READS none either, so it sources nothing. A
-# `source` of repo-context.sh here would bind a dependency no line below uses:
-# every value in this file is a gate-script basename. A consumer needing both
-# sources both — scripts/release.sh does, and so does DEPLOY.md § 3.1's hand
-# path.
-#
-# SOURCE this file, never execute it — mode 644, the same convention as
-# scripts/lib/repo-context.sh and scripts/lib/check-common.sh.
-#
-# Assignments are plain rather than `readonly`, for the same reason they are in
-# repo-context.sh: a consumer that sources this file more than once in a single
-# shell does not abort on a re-assignment to a read-only name.
+# Its file conventions are repo-context.sh's, for the reasons stated there:
+# source it and never execute it (mode 644), and its assignments are plain
+# rather than `readonly`.
 
 # --- The gates a release is verified by --------------------------------------
 

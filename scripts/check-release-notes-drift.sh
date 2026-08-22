@@ -30,9 +30,14 @@
 # pinned version, so it can never read a directory naming another version on its
 # own account; what it cannot see is a SECOND, stale directory beside the pinned
 # one, because it would go on reading the correct one and pass. That case is
-# covered because the two gates always run together — `.local-ci.yml` runs both
-# on every push and DEPLOY.md § 3.1 lists both in the hand-edit recovery path —
-# not because the sibling calls into anything here.
+# covered wherever either gate reads a VENDORED artefact, because both gates run
+# there — `.local-ci.yml` runs both on every push and DEPLOY.md § 3.1 lists both
+# in the hand-edit recovery path — not because the sibling calls into anything
+# here.
+#
+# The pairing is not universal, and saying so is the point: `scripts/release.sh`
+# step 6 runs the sibling ALONE. That invocation passes a STAGED contract by
+# path, so it consults no vendored directory and has no stale sibling to miss.
 #
 # THE COMPARISON IS ROUND-TRIP, NOT TEXTUAL. A `>-` folded scalar is not a
 # byte-preserving container, so a byte-perfect copy of the upstream body does
