@@ -226,6 +226,13 @@ def validate_body(body: str) -> None:
     if "\t" in body:
         fail("the release body contains a tab; YAML block indentation is spaces only")
     lines = body.split("\n")
+    if lines[0] == "":
+        fail(
+            "the release body's first line is blank; the emitter decides a blank "
+            "run's width from the line before it, and a run that starts at the "
+            "first line has no line before it. Remove the leading blank line from "
+            "the Release body upstream, then re-run."
+        )
     if lines[0][:1].isspace():
         fail(
             "the release body's first line begins with whitespace; a folded scalar "
@@ -262,8 +269,13 @@ def emit_block(body: str, indent: int) -> str:
         while after < total and lines[after] == "":
             after += 1
         run = after - position
-        # validate_body guarantees a non-blank first and last line, so a blank
-        # run always has a real neighbour on each side.
+        # A blank run always has a real neighbour on each side, so neither
+        # index below can fall off the end. Each half of that comes from a
+        # different place, and they are named separately because a change to
+        # either one alone would break this: `validate_body` refuses a blank
+        # FIRST line, so a run can never start at position 0; `canonical_body`
+        # strips the trailing newlines, so the LAST line is never blank and a
+        # run can never end at `total`.
         previous_more_indented = lines[position - 1][:1].isspace()
         next_more_indented = lines[after][:1].isspace()
         both_at_base = not previous_more_indented and not next_more_indented

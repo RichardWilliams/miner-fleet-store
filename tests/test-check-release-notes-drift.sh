@@ -83,6 +83,19 @@ round_trip_case() {
       "$NOTES_BLOCK_INDENT"
 }
 
+# $1 = case description, $2 = body, $3 = expected refusal substring.
+#
+# The refusal counterpart of `round_trip_case`: a body the emitter cannot
+# represent faithfully must be REFUSED by name, not emitted into a manifest.
+refused_body_case() {
+  local desc="$1" body="$2" expected="$3"
+  body_counter=$(( body_counter + 1 ))
+  local body_file="${scratch}/rt-body-${body_counter}.txt"
+  printf '%s\n' "$body" > "$body_file"
+  assert_case "$desc" 1 "$expected" \
+    python3 "$PARSER_LIB" round-trip "$body_file" "$NOTES_BLOCK_INDENT"
+}
+
 # Build a miniature repo. $1 = fixture name. Returns the fixture root.
 make_fixture() {
   local name="$1"
@@ -175,6 +188,21 @@ One setup step: create "config.env" and set MINER_FLEET_SUBNETS=10.0.0.0/24.
 
   - discovery
   - telemetry'
+
+# A body whose FIRST line is blank is refused rather than emitted. The emitter
+# decides a blank run's width from the line before the run, so a run starting at
+# the first line would read the line before position 0 — the LAST line — and
+# size the run against an unrelated neighbour. The observed result was a leading
+# blank line silently becoming two, in a value copied verbatim from upstream and
+# never authored here. Both this gate and scripts/release.sh call the same
+# emitter, so nothing downstream would have caught it: the comparison would have
+# been wrong against equally wrong and passed.
+refused_body_case 'emitter: a blank first line is refused, not silently doubled' \
+  '
+Miner Fleet 0.4.0
+
+A change.' \
+  "first line is blank"
 
 # ---------------------------------------------------------------------------
 # THE FALSE-BLOCK CASE. A byte-perfect body, emitted as a `>-` scalar, must
