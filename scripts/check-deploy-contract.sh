@@ -23,10 +23,21 @@
 # vendored at bump time under `upstream/v<version>/`, fetched there at tag
 # `v<version>` — never at `main`, never at an unpinned ref. The version-encoded
 # directory name is what makes "fetched at the pinned tag" checkable with no
-# network at all. The sibling `check-release-notes-drift.sh` owns the guard that
-# exactly one such directory exists and that it names the pinned version; that
-# rule has one definition and is not repeated here. DECISIONS.md entry 13 is the
-# single networked-gate policy both gates follow.
+# network at all. DECISIONS.md entry 13 is the single networked-gate policy both
+# gates follow.
+#
+# WHAT THIS GATE DOES AND DOES NOT GUARANTEE ABOUT STALENESS. It DERIVES the
+# contract path from the version the manifest pins, so it can only ever read
+# `upstream/v<pinned>/contract.json`: a directory naming a different version
+# cannot satisfy it, and an absent one fails it closed. What it does NOT do is
+# notice a SECOND, stale `upstream/vX.Y.Z/` directory sitting beside the pinned
+# one — it would go on reading the correct one and pass. That "exactly one
+# vendored directory" check is written once, in `check-release-notes-drift.sh`,
+# and it is a property of the SUITE rather than a coupling implemented here:
+# `.local-ci.yml` runs both gates on every push and DEPLOY.md § 3.1 lists both
+# in the hand-edit recovery path, so the stale-sibling case is caught whenever
+# this gate runs. Running this gate ALONE would not catch it, and nothing in the
+# code below claims otherwise.
 #
 # SCOPE — the `packagingAffecting` subtree, deliberately. An unrecognised field
 # under `packagingAffecting` is a FAILURE naming the field, because a new

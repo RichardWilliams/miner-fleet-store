@@ -24,8 +24,6 @@ readonly SCRIPT_UNDER_TEST="${repo_root}/scripts/check-release-notes-drift.sh"
 readonly COMMON_LIB="${repo_root}/scripts/lib/check-common.sh"
 readonly CONTEXT_LIB="${repo_root}/scripts/lib/repo-context.sh"
 readonly PARSER_LIB="${repo_root}/scripts/lib/manifest_data.py"
-readonly APP_ID="pipfox-miner-fleet"
-readonly VENDOR_DIR="upstream"
 
 for required in "$SCRIPT_UNDER_TEST" "$COMMON_LIB" "$CONTEXT_LIB" "$PARSER_LIB"; do
   [[ -f "$required" ]] || {
@@ -33,6 +31,13 @@ for required in "$SCRIPT_UNDER_TEST" "$COMMON_LIB" "$CONTEXT_LIB" "$PARSER_LIB";
     exit 1
   }
 done
+
+# The app id, the vendored-artefact directory and the releaseNotes block indent
+# come from the one place that declares them, exactly as tests/test-release.sh
+# already does. The indent in particular MUST be read rather than retyped: a
+# fixture emitted at a stale indent would still be valid YAML, so a literal here
+# would fail OPEN, silently exercising an indent production code had moved off.
+source "$CONTEXT_LIB"
 
 # The scratch dir, its single cleanup trap, the counters, assert_case and the
 # summary line are shared with the sibling suites.
@@ -49,9 +54,9 @@ source "$harness"
 readonly ROUND_TRIP_COMPARE="${scratch}/compare-round-trip.sh"
 cat > "$ROUND_TRIP_COMPARE" <<'COMPARE'
 #!/usr/bin/env bash
-# $1 = parser module, $2 = body file, $3 = expected-value file
+# $1 = parser module, $2 = body file, $3 = expected-value file, $4 = block indent
 set -euo pipefail
-actual="$(python3 "$1" round-trip "$2" 2)"
+actual="$(python3 "$1" round-trip "$2" "$4")"
 expected="$(cat "$3")"
 if [[ "$actual" != "$expected" ]]; then
   printf 'round-trip mismatch\n--- actual ---\n%s\n--- expected ---\n%s\n' "$actual" "$expected" >&2
@@ -71,14 +76,15 @@ round_trip_case() {
   printf '%s\n' "$body" > "$body_file"
   printf '%s\n' "$expected" > "$expected_file"
   assert_case "$desc" 0 'round-trip matches' \
-    bash "$ROUND_TRIP_COMPARE" "$PARSER_LIB" "$body_file" "$expected_file"
+    bash "$ROUND_TRIP_COMPARE" "$PARSER_LIB" "$body_file" "$expected_file" \
+      "$NOTES_BLOCK_INDENT"
 }
 
 # Build a miniature repo. $1 = fixture name. Returns the fixture root.
 make_fixture() {
   local name="$1"
   local root="${scratch}/${name}"
-  mkdir -p "${root}/scripts/lib" "${root}/${APP_ID}" "${root}/${VENDOR_DIR}"
+  mkdir -p "${root}/scripts/lib" "${root}/${APP_ID}" "${root}/${VENDOR_REL_DIR}"
   cp "$SCRIPT_UNDER_TEST" "${root}/scripts/check-release-notes-drift.sh"
   chmod +x "${root}/scripts/check-release-notes-drift.sh"
   cp "$COMMON_LIB" "${root}/scripts/lib/check-common.sh"
@@ -103,14 +109,15 @@ releaseNotes: >-
 developer: Pipfox
 EOF
   python3 "${root}/scripts/lib/manifest_data.py" set-block \
-    "${root}/${APP_ID}/umbrel-app.yml" releaseNotes "$body_file" 2
+    "${root}/${APP_ID}/umbrel-app.yml" releaseNotes "$body_file" \
+    "$NOTES_BLOCK_INDENT"
 }
 
 # $1 = root, $2 = vendored directory name, $3 = body text.
 write_vendored_body() {
   local root="$1" dir_name="$2" body="$3"
-  mkdir -p "${root}/${VENDOR_DIR}/${dir_name}"
-  printf '%s\n' "$body" > "${root}/${VENDOR_DIR}/${dir_name}/release-notes.txt"
+  mkdir -p "${root}/${VENDOR_REL_DIR}/${dir_name}"
+  printf '%s\n' "$body" > "${root}/${VENDOR_REL_DIR}/${dir_name}/release-notes.txt"
 }
 
 # $1 = case description, $2 = expected exit, $3 = fixture root, $4 = substring.
@@ -284,15 +291,15 @@ run_case 'fail-closed: an unparseable version fails' 1 "$root" 'is not a semver'
 # absent committed copy, and it fails exactly the same way.
 root="$(make_fixture missing_vendored_body)"
 write_emitted_manifest "$root" '0.3.0' "${scratch}/base-body.txt"
-mkdir -p "${root}/${VENDOR_DIR}/v0.3.0"
+mkdir -p "${root}/${VENDOR_REL_DIR}/v0.3.0"
 run_case 'fail-closed: a missing vendored Release body fails' 1 "$root" 'vendored release body not found'
 
 # The vendored body exists but is empty. An empty upstream Release body is a
 # hard failure, never an empty listing.
 root="$(make_fixture empty_vendored_body)"
 write_emitted_manifest "$root" '0.3.0' "${scratch}/base-body.txt"
-mkdir -p "${root}/${VENDOR_DIR}/v0.3.0"
-: > "${root}/${VENDOR_DIR}/v0.3.0/release-notes.txt"
+mkdir -p "${root}/${VENDOR_REL_DIR}/v0.3.0"
+: > "${root}/${VENDOR_REL_DIR}/v0.3.0/release-notes.txt"
 run_case 'fail-closed: an empty vendored Release body fails' 1 "$root" 'is empty'
 
 # No vendored directory at all.
@@ -319,7 +326,7 @@ run_case 'fail-closed: a vendored directory naming another version fails' 1 "$ro
 # The vendored root directory is gone entirely.
 root="$(make_fixture no_vendor_root)"
 write_emitted_manifest "$root" '0.3.0' "${scratch}/base-body.txt"
-rmdir "${root}/${VENDOR_DIR}"
+rmdir "${root}/${VENDOR_REL_DIR}"
 run_case 'fail-closed: an absent vendored root fails' 1 "$root" 'vendored upstream directory not found'
 
 report_summary

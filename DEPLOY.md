@@ -97,15 +97,21 @@ In order, it:
    (DECISIONS.md entry 11).
 3. **Fetches `deploy/contract.json` at tag `vX.Y.Z`** — the same version being
    pinned, never `main`.
-4. **Asserts the contract against the current compose before writing anything.**
+4. **Refuses either fetched artefact if it carries a credential shape** — an AWS
+   access-key ID, a GitHub token, a PEM private-key header or an `sk-` style API
+   key. The refusal names the category and never the matched text, and it runs
+   before anything is written, so the tree is left exactly as it was
+   (DECISIONS.md entry 15).
+5. **Asserts the contract against the current compose before writing anything.**
    A mismatch stops the run with the tree exactly as it was.
-5. **Writes the bump**: `version` in `pipfox-miner-fleet/umbrel-app.yml`, the
+6. **Writes the bump**: `version` in `pipfox-miner-fleet/umbrel-app.yml`, the
    `releaseNotes` block in the same file, the image tag *and* `@sha256:` digest
    in `pipfox-miner-fleet/docker-compose.yml`, and both fetched artefacts into
    `upstream/vX.Y.Z/`, removing the previous version's directory.
-6. **Re-runs `check-version-drift.sh`, `check-release-notes-drift.sh` and
-   `check-deploy-contract.sh`** against the tree it just wrote.
-7. **Opens the PR** on branch `release-X.Y.Z`. Re-running for the same version
+7. **Re-runs `check-version-drift.sh`, `check-release-notes-drift.sh`,
+   `check-deploy-contract.sh` and `check-secret-leak.sh`** against the tree it
+   just wrote.
+8. **Opens the PR** on branch `release-X.Y.Z`. Re-running for the same version
    after a mid-sequence failure resumes and updates the open PR rather than
    opening a second one.
 
@@ -164,12 +170,16 @@ pass before the push.
 
 4. **Write `releaseNotes` from the vendored body**, rather than retyping it.
    The listing is a copy of the Release, never a second original, and a
-   hand-indented `>-` block is exactly where a copy goes wrong:
+   hand-indented `>-` block is exactly where a copy goes wrong. The block indent
+   comes from `$NOTES_BLOCK_INDENT`, exported by the `source` in step 3, for the
+   same reason the coordinates do — it is declared once, in
+   `scripts/lib/repo-context.sh`, and the drift gate re-emits at whatever that
+   file says:
 
    ```bash
    python3 scripts/lib/manifest_data.py set-block \
      pipfox-miner-fleet/umbrel-app.yml releaseNotes \
-     upstream/vX.Y.Z/release-notes.txt 2
+     upstream/vX.Y.Z/release-notes.txt "$NOTES_BLOCK_INDENT"
    ```
 
 5. **Run the gates locally** before pushing:
@@ -178,7 +188,12 @@ pass before the push.
    bash scripts/check-version-drift.sh
    bash scripts/check-release-notes-drift.sh
    bash scripts/check-deploy-contract.sh
+   bash scripts/check-secret-leak.sh
    ```
+
+   Running them together matters: `check-release-notes-drift.sh` is the only one
+   that refuses a stale second `upstream/vX.Y.Z/` directory, and
+   `check-deploy-contract.sh` would go on reading the pinned one and pass.
 
 6. **Open a PR and merge it.** The merge to `main` is what publishes the
    release; umbreld polls `main`.
@@ -363,6 +378,17 @@ packaging contract and the explanatory comments this compose file carries.
 gates above compare against artefacts vendored under `upstream/vX.Y.Z/` rather
 than calling the network, so neither can fail on an unavailable network — and a
 stale or missing vendored copy fails them closed.
+
+**Nothing shaped like a credential is published from this repo** (entry 15). The
+text in `releaseNotes` and the prose in the vendored contract are written by a
+human in a PRIVATE repo and copied into this PUBLIC one, where the history is
+permanent. `scripts/release.sh` refuses either fetched artefact before writing,
+and `scripts/check-secret-leak.sh` refuses the same shapes at push time over the
+files a release bump writes — the driver covers the automated path, the gate
+covers the § 3.1 hand path. Neither prints the matched text. Private-range and
+loopback IP literals are deliberately NOT among the refused shapes: this app
+sweeps the operator's own LAN, so `192.168.x.x` in operator guidance is
+necessary prose, not a leak. Do not "tighten" the gate by adding them.
 
 ---
 

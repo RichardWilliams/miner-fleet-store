@@ -20,6 +20,11 @@
 #     hours later, from another machine, with nothing carried between them.
 #   * It never falls through to hand-written release notes. A missing Release,
 #     an empty body, or a `gh` failure is a hard failure (DECISIONS.md entry 10).
+#   * It never copies a credential out of the private upstream repo into this
+#     public one. Both fetched artefacts are checked against the credential
+#     shapes in `scripts/lib/secret-patterns.sh` while they are still staged,
+#     and a match stops the run naming the CATEGORY and never the matched text
+#     (DECISIONS.md entry 15).
 #   * It never writes a byte into the tree before the deployment contract has
 #     been asserted against the compose that is already there, so a mismatch
 #     leaves the working tree exactly as it was.
@@ -58,8 +63,23 @@ source "${script_dir}/lib/check-common.sh"
 # patterns derived from them are declared once — see scripts/lib/repo-context.sh
 # and INVARIANTS.md § Encapsulation.
 source "${script_dir}/lib/repo-context.sh"
+# The credential shapes this repo refuses to publish, and the scan itself, are
+# shared with scripts/check-secret-leak.sh — see scripts/lib/secret-patterns.sh.
+source "${script_dir}/lib/secret-patterns.sh"
 
 readonly HELPER="${script_dir}/lib/manifest_data.py"
+
+# The gates this driver depends on, named once. The same list is guarded for
+# existence before anything runs and re-run against the tree afterwards; two
+# hand-kept copies of it could disagree about which gates a release is verified
+# by.
+readonly GATES=(
+  check-version-drift
+  check-release-notes-drift
+  check-deploy-contract
+  check-secret-leak
+)
+
 # POSIX ERE only — no \d, \s or \b (INVARIANTS.md § Tool invocation correctness).
 # Anchored at line start, which is the entire reason the indented `Manifests:`
 # entries in the inspect output can never be read as the index digest.
@@ -84,7 +104,7 @@ compose="${repo_root}/${COMPOSE_REL_PATH}"
 [[ -f "$HELPER" ]] || fail "shared manifest parser not found at ${HELPER}"
 [[ -f "$manifest" ]] || fail "app manifest not found at ${manifest}"
 [[ -f "$compose" ]] || fail "compose file not found at ${compose}"
-for gate in check-version-drift check-release-notes-drift check-deploy-contract; do
+for gate in "${GATES[@]}"; do
   [[ -f "${script_dir}/${gate}.sh" ]] || fail "gate script not found at ${script_dir}/${gate}.sh"
 done
 
@@ -100,8 +120,9 @@ fi
 # --- staging ------------------------------------------------------------------
 #
 # Everything fetched lands here first. The tree is written only after the
-# contract assertion passes, which is what makes "a mismatch leaves the tree
-# untouched" literally true rather than merely intended.
+# credential refusal and the contract assertion have both passed, which is what
+# makes "a refusal leaves the tree untouched" literally true rather than merely
+# intended.
 #
 # ONE cleanup handler for this scope (codespace docs/coding-standards.md § 9.3 —
 # a second `trap ... EXIT` here would silently replace it). INT and TERM exit so
@@ -177,14 +198,43 @@ if [[ ! -s "$staged_contract" ]]; then
   fail "${UPSTREAM_CONTRACT_PATH} at ${UPSTREAM_REPO_SLUG} tag v${version} is empty"
 fi
 
-# --- 5. assert the contract BEFORE any file is written -----------------------
+# --- 5. refuse a credential in either staged artefact ------------------------
+#
+# BOTH artefacts, not just the Release body. The contract is JSON generated
+# upstream, but its `documentation.*` fields are free prose a human writes, and
+# until this check existed it was copied into the tree verbatim with no content
+# check of any kind.
+#
+# WHY THIS CHECK ALSO EXISTS AS A PUSH-TIME GATE. This one runs where the text
+# ENTERS the tree; `scripts/check-secret-leak.sh` runs where the tree becomes
+# PUBLIC. A control at only one of those leaves the other open: a hand edit made
+# by DEPLOY.md § 3.1's recovery path never reaches this script at all, and it
+# satisfies `check-release-notes-drift.sh` as long as it changes the manifest and
+# the vendored copy together. Both places, one definition of the shapes
+# (scripts/lib/secret-patterns.sh). See that gate's header and DECISIONS.md
+# entry 15 for the full reasoning.
+#
+# It runs HERE, on the staged copies, rather than only in the post-write
+# verification below, so a refusal leaves the working tree exactly as it was —
+# the same ordering rule the contract assertion follows. A credential written
+# into the tree and only then refused would already be sitting in the checkout.
+
+staged_category=""
+if ! secret_scan_file staged_category "$staged_notes"; then
+  fail "the v${version} Release body contains ${staged_category}. ${SECRET_LEAK_RATIONALE} Nothing has been written — the working tree is exactly as it was. Edit the Release body upstream, then re-run."
+fi
+if ! secret_scan_file staged_category "$staged_contract"; then
+  fail "${UPSTREAM_CONTRACT_PATH} at ${UPSTREAM_REPO_SLUG} tag v${version} contains ${staged_category}. ${SECRET_LEAK_RATIONALE} Nothing has been written — the working tree is exactly as it was. Correct the contract upstream, re-tag, then re-run."
+fi
+
+# --- 6. assert the contract BEFORE any file is written -----------------------
 
 printf 'release: asserting the v%s deployment contract against the current compose\n' "$version"
 if ! bash "${script_dir}/check-deploy-contract.sh" --contract "$staged_contract" --compose "$compose"; then
   fail "the v${version} deployment contract is not satisfied by the current ${COMPOSE_REL_PATH}. NOTHING has been written — the working tree is exactly as it was. Reconcile the compose with the contract (this repo asserts against the contract and never generates from it, DECISIONS.md entry 12), then re-run."
 fi
 
-# --- 6. the release branch ----------------------------------------------------
+# --- 7. the release branch ----------------------------------------------------
 
 branch="release-${version}"
 current_branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)"
@@ -196,7 +246,7 @@ if [[ "$current_branch" != "$branch" ]]; then
   fi
 fi
 
-# --- 7. write the tree --------------------------------------------------------
+# --- 8. write the tree --------------------------------------------------------
 
 vendor_root="${repo_root}/${VENDOR_REL_DIR}"
 mkdir -p "$vendor_root"
@@ -236,15 +286,15 @@ cat "${staging}/compose.out" > "$compose"
 
 printf 'release: wrote version %s, image tag %s and digest %s\n' "$version" "$version" "$digest"
 
-# --- 8. verify the written tree ----------------------------------------------
+# --- 9. verify the written tree ----------------------------------------------
 
 printf 'release: re-running the gates against the written tree\n'
-for gate in check-version-drift check-release-notes-drift check-deploy-contract; do
+for gate in "${GATES[@]}"; do
   bash "${script_dir}/${gate}.sh" \
     || fail "post-write verification failed: ${gate}.sh does not pass against the tree this run just wrote. The tree is on branch ${branch} and nothing has been committed."
 done
 
-# --- 9. commit, push, and open the PR exactly once ---------------------------
+# --- 10. commit, push, and open the PR exactly once --------------------------
 
 git -C "$repo_root" add --all -- \
   "$VENDOR_REL_DIR" "$MANIFEST_REL_PATH" "$COMPOSE_REL_PATH"

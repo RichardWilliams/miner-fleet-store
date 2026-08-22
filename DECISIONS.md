@@ -16,12 +16,15 @@ crash loop caused by that entry's original, unverified claim about who creates
 and owns the bind-mount source. That same PR appended entry 9, recording the
 gate it added to enforce the `server` service's hardening mechanically.
 
-Entries 10-13 are appended by the PR closing `#11` — the PR that added the
-release driver `scripts/release.sh` and the two fail-closed gates beside it
-(`scripts/check-release-notes-drift.sh`, `scripts/check-deploy-contract.sh`).
-They record, in order: where the listing's release notes come from, how they are
-spelled, which direction the compose-versus-contract relationship runs in, and
-the single policy that keeps both new gates off the network.
+Entries 10-15 are appended by the PR closing `#11` — the PR that added the
+release driver `scripts/release.sh` and the fail-closed gates beside it
+(`scripts/check-release-notes-drift.sh`, `scripts/check-deploy-contract.sh`,
+`scripts/check-secret-leak.sh`). They record, in order: where the listing's
+release notes come from, how they are spelled, which direction the
+compose-versus-contract relationship runs in, the single policy that keeps the
+networked gates off the network, why the release-PR review exemption named in
+`#11`'s scope is not built in this repo, and where the credential-leak control
+lives and what it deliberately does not refuse.
 
 ---
 
@@ -545,3 +548,108 @@ false-blocking correct work — both conditions, because either alone reintroduc
 the failure this entry avoids. Or an upstream Release body is edited after a bump
 and the divergence causes a real operator-visible problem, which would be the
 receipt that the weaker claim above is not enough.
+
+---
+
+## 14. The release-PR review exemption gate is not built in this repo
+
+**Statement.** `scripts/check-release-pr-scope.sh` — the mechanical, diff-derived
+release-PR review exemption named in `#11`'s scope — is deliberately NOT built
+here, and neither is `tests/test-check-release-pr-scope.sh`. The rule the
+exemption was to express still holds and is recorded by this entry: a release-PR
+review exemption is DIFF-DERIVED, never trust-based. No label, commit-message
+marker, PR-body phrase or environment variable may ever grant one. The decision
+this entry records is about WHERE that rule can be enforced, and the answer is
+not "in this repo's tree".
+
+**Why.** The gate would have no consumer. Reviewer-panel composition is resolved
+entirely in the codespace estate, from the PR body and the closing issues, and
+never from the managed repo's own files: `codespace/hook/reviewer_gate.py` and
+`codespace/scan/reviewer_clean_push.py` read the expected panel exclusively from
+the `## Review config` include lists on the PR body and on the issues it closes.
+Neither reads this repo's tree at all. The codespace's own
+`docs/architecture.md:106` states the same fact from the other side — "There is
+no trigger config, canonical or local."
+
+Composition is additive-only by the cs#1788 decision: a name is added to the
+panel by a rule or by a named signal, and there is no subtractive counterpart for
+a repo-local file to drive. So a gate shipped here would compute a correct
+verdict that nothing reads, on every release PR, forever. That is a speculative
+abstraction — a mechanism built for a consumer that does not exist — and
+codespace `CLAUDE.md` RULE #5 refuses it. Building it and describing the gap in
+the PR body instead would be the same refusal dressed as delivery.
+
+This entry is the FIFTH of the five permanent decisions `#11`'s exp-119 requires
+this PR to record; entries 10-13 carry the other four. What is not built is the
+gate, not the rule — the diff-derived-never-trust-based statement above is the
+record exp-119 asks for, and it is in the diff rather than in a PR body.
+
+**Revisit if.** The codespace estate grows a consumer that reads a repo-local
+exemption signal — a reviewer-gate path that consults the managed repo's tree
+when composing or narrowing the panel. That is a change to the codespace
+reviewer-gate composition model, so it is decided and built THERE; this entry is
+what a future session reads to know that the store-side half was considered,
+scoped, and left unbuilt for a stated reason rather than missed.
+
+---
+
+## 15. The credential-leak control lives in BOTH the release driver and the push-time gates, and refuses shapes rather than addresses
+
+**Statement.** Nothing shaped like a credential is published from this repo. Four
+shapes are refused: AWS access-key IDs, GitHub tokens (`ghp_`, `gho_`, `ghu_`,
+`ghs_`, `ghr_` and the fine-grained `github_pat_` prefix), PEM private-key
+headers, and `sk-` style API keys. They are declared ONCE, in
+`scripts/lib/secret-patterns.sh`, together with the one function that looks for
+them.
+
+Two consumers share that one declaration:
+
+- `scripts/release.sh` checks both fetched artefacts — the Release body and the
+  deployment contract — while they are still staged, before a byte is written,
+  so a refusal leaves the working tree exactly as it was.
+- `scripts/check-secret-leak.sh` checks the files a release bump writes (the app
+  manifest, the compose file, and everything vendored under `upstream/`) at push
+  time, as a `.local-ci.yml` step.
+
+Every refusal names the CATEGORY and never the matched text.
+
+Private-range and loopback IP literals are deliberately NOT refused.
+
+**Why — both places, not one.** The driver is where upstream text ENTERS the
+tree; the push is where it becomes PUBLIC. Those are different events, and a
+control at only one of them leaves the other open. A driver-only check misses
+every hand edit: DEPLOY.md § 3.1 documents the hand path as the supported
+recovery for a machine without `docker` or an authenticated `gh`, and an edit
+that changes the manifest's `releaseNotes` and the vendored copy TOGETHER
+satisfies `check-release-notes-drift.sh` — that gate compares the two against
+each other, not against the Release. A gate-only check would let the driver
+fetch, write, and only then refuse, leaving the credential in the checkout and
+breaking the tree-untouched-on-refusal property the staging design exists for.
+So the control is in both places over one definition of the shapes
+(`INVARIANTS.md` § Encapsulation), covering two different entry points rather
+than restating one check twice.
+
+**Why — the category and never the match.** Printing the matched text would
+disclose the credential a second time, into the operator's terminal, their shell
+history, and the CI log of every run that reproduced the failure. The category
+name is enough to act on and discloses nothing.
+
+**Why — shapes, not addresses.** A private-range or loopback IP check was
+proposed and refused. This application's entire purpose is sweeping the
+operator's own LAN, so its operator-facing text legitimately carries values like
+`MINER_FLEET_SUBNETS=192.168.1.0/24` — the shipped `0.2.0` `releaseNotes` and
+DEPLOY.md § 6 both do. A gate refusing private-range literals would have blocked
+the last release and would block the next one that explains subnet
+configuration. Those addresses are necessary prose in this repo, not a leak, and
+entry 7 already keeps the operator's REAL subnet out of the tree by keeping the
+setting on the box. `tests/test-check-secret-leak.sh` pins the non-refusal with a
+case built on the shipped guidance, so the check cannot be "tightened" into
+blocking correct releases without a red test.
+
+**Revisit if.** A credential shape not in the four above is found in a published
+artefact, upstream or here — the remedy is a new row in
+`scripts/lib/secret-patterns.sh`, which extends both consumers at once, never a
+second scanner. Or the operator-facing text stops being copied from a private
+repo, which would remove the asymmetry this entry exists for; the gate would
+still be worth its cost, so it would need a new reason rather than an automatic
+removal.

@@ -70,6 +70,35 @@ VENDOR_NOTES_NAME="release-notes.txt"
 # writes and the value the gate re-emits can never disagree.
 NOTES_BLOCK_INDENT=2
 
+# --- when a consumer may retype a value instead of sourcing this file --------
+#
+# Every production consumer sources this file. The test suites are the one place
+# a value is legitimately RETYPED, and only under one condition, stated here so a
+# future reader can check it rather than infer it from which literals happen to
+# be present:
+#
+#   A test may retype a coordinate ONLY when a change to the declaration above
+#   makes that test FAIL LOUDLY. It may never retype one where a change above
+#   leaves the test green while it exercises the stale value.
+#
+# What decides it is what the fixture does with the value. Each suite's
+# `make_fixture()` COPIES this file into the fixture and runs the real script
+# against it, so a retyped PATH coordinate desyncs the tree the fixture builds
+# from the path the copied library tells the script to read: the script looks in
+# the new place, finds nothing, and the suite goes red. That covers `APP_ID` and
+# the `upstream` directory name in the suites that still spell them out, the
+# four `umbrel-app.yml` / `docker-compose.yml` / `release-notes.txt` /
+# `contract.json` filenames, the image coordinate that `COMPOSE_IMAGE_ERE` is
+# built from, and the contract path the release-driver suite's fail-closed `gh`
+# stub refuses any other value for.
+#
+# `NOTES_BLOCK_INDENT` is the one that is NOT that case, which is why this block
+# exists. A manifest emitted at a stale indent is still valid YAML, so a retyped
+# indent leaves the suite green while exercising an indent production code has
+# moved off — it fails OPEN. Every consumer of it reads it from here: both test
+# suites that emit a `releaseNotes` block, and DEPLOY.md § 3.1's hand-edit step,
+# which sources this file two steps earlier.
+
 # --- Shared patterns ---------------------------------------------------------
 
 # The shape of a release version, X.Y.Z, as a POSIX ERE — no \d, \s or \b

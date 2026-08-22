@@ -23,9 +23,16 @@
 # gate requires EXACTLY ONE directory under `upstream/` whose name matches the
 # manifest's own `version`. That is what makes staleness mechanically visible
 # with no network: a bump that forgets to re-vendor, or a stale copy left beside
-# a new one, fails here rather than passing on the old artefact. The sibling
-# `check-deploy-contract.sh` reads the same directory and relies on this guard
-# rather than repeating it.
+# a new one, fails here rather than passing on the old artefact.
+#
+# This gate is the ONLY place the "exactly one directory" half is written. The
+# sibling `check-deploy-contract.sh` derives its own contract path from the same
+# pinned version, so it can never read a directory naming another version on its
+# own account; what it cannot see is a SECOND, stale directory beside the pinned
+# one, because it would go on reading the correct one and pass. That case is
+# covered because the two gates always run together — `.local-ci.yml` runs both
+# on every push and DEPLOY.md § 3.1 lists both in the hand-edit recovery path —
+# not because the sibling calls into anything here.
 #
 # THE COMPARISON IS ROUND-TRIP, NOT TEXTUAL. A `>-` folded scalar is not a
 # byte-preserving container, so a byte-perfect copy of the upstream body does

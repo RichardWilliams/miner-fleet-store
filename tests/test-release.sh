@@ -29,6 +29,7 @@ readonly SCRIPT_UNDER_TEST="${repo_root}/scripts/release.sh"
 readonly COMMON_LIB="${repo_root}/scripts/lib/check-common.sh"
 readonly CONTEXT_LIB="${repo_root}/scripts/lib/repo-context.sh"
 readonly PARSER_LIB="${repo_root}/scripts/lib/manifest_data.py"
+readonly PATTERNS_LIB="${repo_root}/scripts/lib/secret-patterns.sh"
 
 # The app id, the registry coordinate and both GitHub slugs come from the one
 # place that declares them, so no coordinate is written a second time here.
@@ -47,9 +48,15 @@ readonly INDEX_DIGEST="sha256:27c16fba762479efa4773aa477ede79e96f67bb633c554baa1
 # it is what the fixture inspect output is built to tempt.
 readonly PLATFORM_DIGEST="sha256:1111111111111111111111111111111111111111111111111111111111111111"
 
-readonly GATES=(check-version-drift check-release-notes-drift check-deploy-contract)
+readonly GATES=(
+  check-version-drift
+  check-release-notes-drift
+  check-deploy-contract
+  check-secret-leak
+)
 
-for required in "$SCRIPT_UNDER_TEST" "$COMMON_LIB" "$CONTEXT_LIB" "$PARSER_LIB"; do
+for required in "$SCRIPT_UNDER_TEST" "$COMMON_LIB" "$CONTEXT_LIB" "$PARSER_LIB" \
+  "$PATTERNS_LIB"; do
   [[ -f "$required" ]] || {
     printf 'FATAL: file under test not found at %s\n' "$required" >&2
     exit 1
@@ -292,6 +299,7 @@ make_fixture() {
   cp "$COMMON_LIB" "${root}/scripts/lib/check-common.sh"
   cp "$CONTEXT_LIB" "${root}/scripts/lib/repo-context.sh"
   cp "$PARSER_LIB" "${root}/scripts/lib/manifest_data.py"
+  cp "$PATTERNS_LIB" "${root}/scripts/lib/secret-patterns.sh"
 
   cat > "${root}/${APP_ID}/umbrel-app.yml" <<EOF
 manifestVersion: 1
@@ -308,7 +316,8 @@ EOF
   printf '%s\n' "$CONTRACT_JSON" > "${root}/${VENDOR_REL_DIR}/v${PREVIOUS_VERSION}/contract.json"
   python3 "${root}/scripts/lib/manifest_data.py" set-block \
     "${root}/${APP_ID}/umbrel-app.yml" releaseNotes \
-    "${root}/${VENDOR_REL_DIR}/v${PREVIOUS_VERSION}/release-notes.txt" 2
+    "${root}/${VENDOR_REL_DIR}/v${PREVIOUS_VERSION}/release-notes.txt" \
+    "$NOTES_BLOCK_INDENT"
 
   printf '%s\n' "$COMPOSE_BODY" > "${root}/${APP_ID}/docker-compose.yml"
 
@@ -382,6 +391,26 @@ fi
 printf 'tree untouched, driver exited %d\n' "$driver_exit"
 UNTOUCHED
 
+# The driver's own run-and-check-absence helper. assert_case can require a
+# substring to be PRESENT; the property here is that one is ABSENT, because a
+# refusal that quoted the credential would disclose it into the terminal and the
+# CI log of every run that reproduced it.
+readonly NO_ECHO_CHECK="${scratch}/assert-driver-secret-not-echoed.sh"
+cat > "$NO_ECHO_CHECK" <<'NOECHO'
+#!/usr/bin/env bash
+# $1 = fixture root, $2 = version argument, $3 = the literal that must not
+# appear anywhere in the driver's output.
+set -euo pipefail
+seen=""
+seen="$(PATH="${1}/fake-bin:${PATH}" bash "${1}/scripts/release.sh" "$2" 2>&1)" || true
+
+if [[ "$seen" == *"$3"* ]]; then
+  printf 'the driver echoed the matched credential back into its own output\n' >&2
+  exit 1
+fi
+printf 'driver named the category and not the credential\n'
+NOECHO
+
 readonly PR_COUNT_CHECK="${scratch}/count-created-prs.sh"
 cat > "$PR_COUNT_CHECK" <<'COUNT'
 #!/usr/bin/env bash
@@ -438,6 +467,9 @@ assert_case 'bump: release-notes drift passes against the written tree' 0 'OK' \
 
 assert_case 'bump: the deployment contract passes against the written tree' 0 'OK' \
   bash "${root}/scripts/check-deploy-contract.sh"
+
+assert_case 'bump: the credential gate passes against the written tree' 0 'OK' \
+  bash "${root}/scripts/check-secret-leak.sh"
 
 assert_case 'vendor: the new version directory is written' 0 '' \
   test -f "${root}/${VENDOR_REL_DIR}/v${TARGET_VERSION}/contract.json"
@@ -520,6 +552,56 @@ run_release 'contract: a tag whose tree carries no contract is a hard failure' 1
   "$root" "$TARGET_VERSION"
 assert_case 'contract: an absent contract leaves the tree untouched' 0 'tree untouched' \
   bash "$UNTOUCHED_CHECK" "$root" "$TARGET_VERSION"
+
+# ---------------------------------------------------------------------------
+# A CREDENTIAL IN EITHER FETCHED ARTEFACT IS REFUSED BEFORE ANYTHING IS WRITTEN.
+# This repo is public and its history is permanent; the repo these two artefacts
+# are copied FROM is private. The refusal names the CATEGORY and never the
+# matched text, and it leaves the tree untouched, exactly as the markdown and
+# contract refusals do (DECISIONS.md entry 15).
+#
+# The fixture values are not credentials: the AWS row is the key id AWS
+# publishes in its own documentation as the example value, and the GitHub row is
+# EXAMPLE filler at the length the shape requires.
+# ---------------------------------------------------------------------------
+readonly EXAMPLE_AWS_KEY='AKIAIOSFODNN7EXAMPLE'
+readonly EXAMPLE_GITHUB_TOKEN='ghp_EXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPL0'
+
+root="$(make_fixture release_body_credential)"
+printf 'The fleet is live.\n\nPasted by mistake: %s\n' "$EXAMPLE_GITHUB_TOKEN" \
+  > "${root}/.stub/release-body.txt"
+run_release 'credential: a Release body carrying a GitHub token is refused' \
+  1 'Release body contains a GitHub token' "$root" "$TARGET_VERSION"
+run_release 'credential: the refusal says the tree was not written' \
+  1 'Nothing has been written' "$root" "$TARGET_VERSION"
+assert_case 'credential: a refused Release body leaves the tree untouched' 0 'tree untouched' \
+  bash "$UNTOUCHED_CHECK" "$root" "$TARGET_VERSION"
+assert_case 'credential: the Release-body refusal never echoes the matched token' \
+  0 'driver named the category and not the credential' \
+  bash "$NO_ECHO_CHECK" "$root" "$TARGET_VERSION" "$EXAMPLE_GITHUB_TOKEN"
+
+# The contract, whose `documentation.*` fields are free prose, had no content
+# check at all before this refusal existed.
+root="$(make_fixture contract_credential)"
+printf '%s\n' "$CONTRACT_JSON" \
+  | sed -E "s|\"purpose\": \"[^\"]*\"|\"purpose\": \"deploy with ${EXAMPLE_AWS_KEY}\"|" \
+  > "${root}/.stub/contract.json"
+run_release 'credential: a contract carrying an AWS access-key ID is refused' \
+  1 'contains an AWS access-key ID' "$root" "$TARGET_VERSION"
+assert_case 'credential: a refused contract leaves the tree untouched' 0 'tree untouched' \
+  bash "$UNTOUCHED_CHECK" "$root" "$TARGET_VERSION"
+assert_case 'credential: the contract refusal never echoes the matched key' \
+  0 'driver named the category and not the credential' \
+  bash "$NO_ECHO_CHECK" "$root" "$TARGET_VERSION" "$EXAMPLE_AWS_KEY"
+
+# The refusal is a SHAPE check, not an address check. This app sweeps the
+# operator's LAN and its release notes say so, so a body naming a private-range
+# subnet must still cut a release (DECISIONS.md entry 15).
+root="$(make_fixture private_range_body_allowed)"
+printf 'Miner Fleet %s\n\nSet MINER_FLEET_SUBNETS=192.168.1.0/24 in config.env on the box.\nThe health probe answers on 127.0.0.1 inside the container.\n' \
+  "$TARGET_VERSION" > "${root}/.stub/release-body.txt"
+run_release 'credential: a body naming a private-range subnet still releases' \
+  0 'done' "$root" "$TARGET_VERSION"
 
 # ---------------------------------------------------------------------------
 # A REGISTRY THAT CANNOT ANSWER IS A HARD FAILURE, never a fall-through to a

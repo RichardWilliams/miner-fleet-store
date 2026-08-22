@@ -102,6 +102,25 @@ steps:
     run: bash tests/test-check-deploy-contract.sh
     timeout: 180
 
+  # The privacy half of the release chain. The listing text and the vendored
+  # contract prose are written by a human in a PRIVATE repo and copied into this
+  # PUBLIC one, whose history is permanent. scripts/release.sh refuses a
+  # credential shape in either fetched artefact before it writes, but the driver
+  # is not the only way into the tree: DEPLOY.md § 3.1's hand path never runs it,
+  # and an edit that changes the manifest and the vendored copy together
+  # satisfies release-notes-drift. This is the same refusal at the point the tree
+  # becomes public (DECISIONS.md entry 15).
+  - name: secret-leak
+    run: bash scripts/check-secret-leak.sh
+    timeout: 60
+
+  # That gate's own tests, including the case that pins what is deliberately NOT
+  # refused: a private-range subnet literal is necessary operator guidance in
+  # this repo, and a check that blocked it would block correct releases.
+  - name: test-secret-leak
+    run: bash tests/test-check-secret-leak.sh
+    timeout: 120
+
   # The release driver's own tests. It is the only thing in this repo that talks
   # to the registry and to GitHub, so its stubs fail closed and its fixtures are
   # complete miniature repos — a regression here would surface as a bad pin on
