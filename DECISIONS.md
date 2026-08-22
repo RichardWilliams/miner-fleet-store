@@ -16,7 +16,7 @@ crash loop caused by that entry's original, unverified claim about who creates
 and owns the bind-mount source. That same PR appended entry 9, recording the
 gate it added to enforce the `server` service's hardening mechanically.
 
-Entries 10-16 are appended by the PR closing `#11` — the PR that added the
+Entries 10-17 are appended by the PR closing `#11` — the PR that added the
 release driver `scripts/release.sh` and the fail-closed gates beside it
 (`scripts/check-release-notes-drift.sh`, `scripts/check-deploy-contract.sh`,
 `scripts/check-secret-leak.sh`). They record, in order: where the listing's
@@ -24,8 +24,9 @@ release notes come from, how they are spelled, which direction the
 compose-versus-contract relationship runs in, the single policy that keeps the
 networked gates off the network, why the release-PR review exemption named in
 `#11`'s scope is not built in this repo, where the credential-leak control
-lives and what it deliberately does not refuse, and where the driver stops —
-at the commit, with the push left to the operator.
+lives and what it deliberately does not refuse, where the driver stops — at
+the commit, with the push left to the operator — and the duplicate-block
+waiver every future release bump re-trips and clears.
 
 ---
 
@@ -722,3 +723,58 @@ written. Or this repo's release stops being a two-file bump verified by a handfu
 of gates and grows a sequence long enough that handing the operator two commands
 costs more than it buys; the answer then is a gated push step of the driver's
 own, not a push buried inside the step that creates the commit.
+
+---
+
+## 17. The recurring duplicate-block waiver is a permanent, accepted cost of the packaging format
+
+**Statement.** `scan-duplicate-code-blocks` reports the English release-notes
+prose as duplicated between `pipfox-miner-fleet/umbrel-app.yml`'s
+`releaseNotes` and the vendored `upstream/vX.Y.Z/release-notes.txt`. It is
+correct: the two are the same text, deliberately. Every future release bump
+writes a new body into both files and re-trips the same finding, so every bump
+clears it with a per-use `--allow-bypass scan-duplicate-code-blocks --reason
+"…"` waiver at the pre-review producer, and again at push. That recurrence is
+the accepted, permanent cost of packaging an upstream Release body into an
+Umbrel manifest. It is not a defect carried forward and it is not awaiting a
+fix; it is recorded here so the operator cutting the next bump recognises the
+finding as expected rather than rediscovering it as a surprise and reaching for
+a structural change that is not available.
+
+**Why the duplication cannot be removed.** That identity IS the invariant
+`scripts/check-release-notes-drift.sh` asserts — the gate exists precisely
+because the manifest field and the vendored artefact must carry the same text,
+and it fails when they do not. Removing the duplication removes the thing being
+checked. A YAML manifest field cannot call a shared helper, and umbreld reads
+the literal manifest off the box, so there is no include mechanism to route the
+one copy through — the deduplication move available in code has no counterpart
+here. Dropping the vendored copy instead leaves the gate comparing the manifest
+to itself, which asserts nothing. Vendoring a hash of the body rather than the
+body breaks `#11`'s exp-110, which requires the failure message to name BOTH
+values so a drift is diagnosable from the message alone, and it hides the prose
+from the diff — which is the surface `privacy-reviewer` inspects before text
+copied out of a PRIVATE repo reaches a PUBLIC listing.
+
+**Why the obvious remedy is foreclosed.** A path-scoped exemption for
+`upstream/**` in `codespace/scan/duplicate_block.py` was proposed by
+`devils-advocate` at round 1 and refused. Codespace `CLAUDE.md` RULE #4 bans
+excluding files or directories from analysis via config, without exception. It
+would also be the wrong shape even if it were permitted: the scanner is
+codespace-wide, so the exemption would be a permanent GLOBAL exclusion applying
+to every managed repo's `upstream/` path, where the per-use waiver is narrower —
+scoped to one invocation, carrying a written reason, and appending one line to
+`<codespace>/.runtime/scan-duplicate-code-blocks-bypass.log` on each use. The
+recurrence is that logging doing its job, not the waiver failing.
+
+**Receipt.** The waiver was used six times on this PR's own branch by the commit
+that added this entry — once per HEAD-moving fix, since every fix invalidates
+the SHA-pinned pre-review marker and forces the producer to re-run over the same
+two files. Each use is recorded in that bypass log, which is what makes the rate
+visible rather than assumed.
+
+**Revisit if.** umbrel's manifest format gains an include mechanism, so the
+listing can reference the vendored body instead of restating it. Or the drift
+gate can compare the listing against something other than a committed copy
+without losing the fail-closed, zero-network property entry 13 records — at
+which point the vendored artefact, and the duplication with it, has a
+replacement rather than merely a critic.
