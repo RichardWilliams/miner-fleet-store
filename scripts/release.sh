@@ -11,26 +11,33 @@
 # keeps the equivalent hand-edit as the recovery path for when this script
 # cannot run.
 #
-# WHAT IT DOES, in order. Each step's own reasoning sits at that step below;
-# the decisions behind them are in DECISIONS.md, which is where they belong.
+# WHAT IT DOES. The body below is divided into numbered steps and THESE ARE
+# THOSE NUMBERS, so a reference here lands on the section it names rather than
+# on a parallel numbering of its own. Each step's reasoning sits at that step;
+# the decisions behind them are in DECISIONS.md.
 #
-#   1. Resolves the multi-arch INDEX digest from the registry, reading the
-#      top-level `Digest:` line rather than the indented per-platform entries
-#      under `Manifests:` (entry 4).
-#   2. Fetches the upstream Release body, and stops on a missing Release, an
-#      empty body or a `gh` failure (entry 10).
-#   3. Fetches `deploy/contract.json` at tag `vX.Y.Z`.
-#   4. Scans both staged artefacts for the four credential shapes declared in
-#      `scripts/lib/secret-patterns.sh` — that set is the whole of what it
-#      looks for, so a secret carrying none of those prefixes is not covered
-#      (entry 15).
-#   5. Asserts the contract against the current compose, before writing.
-#   6. Writes the bump, re-runs `RELEASE_GATES`, commits on `release-X.Y.Z`,
-#      and stops without pushing or opening a PR (entry 16).
+#   1      Resolve the multi-arch INDEX digest from the registry, reading the
+#          top-level `Digest:` line rather than the indented per-platform
+#          entries under `Manifests:` (entry 4).
+#   2      Fetch the upstream Release body. A missing Release, an empty body or
+#          a `gh` failure stops the run (entry 10).
+#   3      Refuse markdown in that body — `**`, a `[text](url)` link, or a
+#          leading `#` — and refuse a body the folded-scalar emitter cannot
+#          represent faithfully (entry 11).
+#   4      Fetch `deploy/contract.json` at tag `vX.Y.Z`.
+#   5      Refuse either staged artefact carrying one of the four credential
+#          shapes declared in `scripts/lib/secret-patterns.sh`. That set is the
+#          whole of what it looks for, so a secret carrying none of those
+#          prefixes is not covered (entry 15).
+#   6      Assert the contract against the current compose.
+#   7-8    Check out `release-X.Y.Z`, then write the bump.
+#   9      Re-run every gate in `RELEASE_GATES` against what was written.
+#   10-11  Commit, and stop — printing the commands the operator runs next,
+#          without pushing and without opening a PR (entry 16).
 #
-# The ordering in 4-5-6 is what leaves the tree as it was when a run refuses:
-# staged copies are checked first and the tree is written only afterwards. The
-# guard further down keeps that true across a crashed previous run.
+# Steps 1-6 all complete before step 8 writes anything, which is what leaves the
+# tree as it was when a run refuses. The guard further down keeps that true
+# across a crashed previous run.
 #
 # VENDOR-AT-BUMP-TIME. The two networked reads happen HERE, once, on the
 # operator's machine where `gh`, `docker` and the network exist. Both artefacts

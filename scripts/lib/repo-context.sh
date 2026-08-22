@@ -138,7 +138,16 @@ NOTES_BLOCK_INDENT=2
 # real script against it, so a retyped PATH desyncs the tree from where the
 # copied library sends the script.
 #
-# `NOTES_BLOCK_INDENT` is the exception that rule does not reach, and it is
+# `vendor_dir_name` carries an obligation the other coordinates do not, and it
+# is stated here because the mechanism looks like duplication and is not: three
+# suites REDECLARE that function inside their own fixture's copy of this file
+# and require the script under test to follow the redeclaration end to end.
+# That is the only way to catch a join re-inlined at ONE of its sites — every
+# fixture spelling the name the current way would otherwise stay green while
+# the writer and the staleness comparison silently disagreed. Do not remove
+# those redeclaration cases as redundant; they are the guard.
+#
+# `NOTES_BLOCK_INDENT` is the exception the rule does not reach, and it is
 # named here so nobody assumes a guard that is absent: a folded scalar's block
 # indent is taken from its own content and stripped on parse, so every consumer
 # here compares parsed values and a divergent indent would change nothing.
