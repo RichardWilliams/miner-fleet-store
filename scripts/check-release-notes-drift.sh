@@ -51,11 +51,9 @@
 # `releaseNotes`, a `releaseNotes` that appears more than once, an unparseable
 # version, a missing or empty vendored body, more than one vendored directory,
 # or a vendored directory that does not name the pinned version is a FAILURE,
-# never a skip. Every clause there is a case in
-# tests/test-check-release-notes-drift.sh's fail-closed section, including the
-# two staleness ones this gate alone carries — a second vendored directory
-# beside the pinned one, and a single directory naming the wrong version — so
-# the list is a description of tested behaviour rather than an intention.
+# never a skip. tests/test-check-release-notes-drift.sh has a fail-closed
+# section covering these inputs, including the two staleness cases this gate
+# alone carries.
 
 set -euo pipefail
 

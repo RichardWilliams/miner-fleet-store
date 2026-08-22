@@ -54,12 +54,8 @@
 #
 # FAIL-CLOSED. A missing contract, an absent or unreadable contract field, an
 # unparseable value on either side, and a compose shape this gate does not read
-# are all FAILURES, never a skip. Each clause of that sentence is a case in
-# tests/test-check-deploy-contract.sh's fail-closed section — a missing contract
-# file, an absent contract field named in the message, a contract field of the
-# wrong shape, an unparseable contract, an unparseable compose, an absent
-# compose field, a healthcheck test carrying no URL, and a missing compose — so
-# the claim is checkable rather than a posture the header asserts about itself.
+# are all FAILURES, never a skip. tests/test-check-deploy-contract.sh has a
+# fail-closed section covering these inputs.
 #
 # usage: check-deploy-contract.sh [--contract <path>] [--compose <path>]
 #

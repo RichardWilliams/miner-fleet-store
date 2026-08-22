@@ -11,31 +11,18 @@ and the operator's machine are guaranteed to have.  Everything the three
 consumers need to read or write is here, once, so the writer (the driver) and
 the reader (the drift gate) cannot drift apart.
 
-FAIL-CLOSED ON INPUT IT CANNOT READ.  An operation exits non-zero with a named
-diagnostic on stderr when the document defeats it: a missing file, an
-unparseable document, a key that appears more than once, a value of the wrong
-shape, or a body the folded-scalar emitter cannot represent faithfully.  A read
-failure is never reported as a success-shaped value, because "parsed fine,
-found nothing" and "could not read it" must not be the same value
-(INVARIANTS.md § Encapsulation).  Enforced by the fail-closed cases in
-tests/test-check-deploy-contract.sh and tests/test-check-release-notes-drift.sh,
-which drive each of those inputs through the gates that call this module.
+HOW FAILURE IS REPORTED.  An operation that cannot read the document it was
+given exits non-zero with a named diagnostic on stderr, rather than returning a
+success-shaped value — "parsed fine, found nothing" and "could not read it" are
+different answers (INVARIANTS.md § Encapsulation).  The reject branches are in
+`load_document`, `resolve`, `scalar_text` and `validate_body`; read those for
+the current list rather than a summary here, which is what went stale before.
 
-KEY PRESENCE IS DATA, AND IS A DIFFERENT QUESTION FROM READABILITY.  An absent
-key is not a document this module failed to read, so the two are answered
-differently and deliberately:
-
-  * `get`, `keys`, `seq` and `len` are asked FOR a value. An absent key means
-    there is no value to return, so they exit non-zero naming the path.
-  * `kind` is asked WHETHER a key is there. It answers `absent` and exits 0 —
-    that is the whole of what it is for. `scripts/check-deploy-contract.sh`
-    branches on that answer as an ordinary case when deciding whether the
-    compose declares an `environment` mapping or an `env_file` sequence, and
-    tests/test-check-deploy-contract.sh's required-environment-key cases drive
-    both branches.
-
-Reading `kind`'s exit 0 as a fail-closed violation gets this backwards: making
-it fail on an absent key would break the one caller that depends on the answer.
+Key presence is a separate question from readability, and the operations split
+on it: `get`, `keys`, `seq` and `len` are asked FOR a value and exit non-zero
+when it is absent; `kind` is asked WHETHER a key is there and answers `absent`
+at exit 0.  `scripts/check-deploy-contract.sh` branches on that answer as an
+ordinary case, so making `kind` fail on absence would break its only caller.
 
 THE FOLDED-SCALAR CONTRACT.  `releaseNotes` is written as a YAML `>-` folded
 block scalar, which is NOT a byte-preserving container: YAML folds the break

@@ -130,63 +130,19 @@ vendor_rel_path() {
 # writes and the value the gate re-emits can never disagree.
 NOTES_BLOCK_INDENT=2
 
-# --- when a consumer may retype a value instead of sourcing this file --------
+# --- retyping a value in a test ------------------------------------------------
 #
-# Every production consumer sources this file. The test suites are the one place
-# a value is legitimately RETYPED, and only under one condition, stated here so a
-# future reader can check it rather than infer it from which literals happen to
-# be present:
+# Every production consumer sources this file. A test suite may retype a
+# coordinate only where doing so makes the suite go RED if the declaration above
+# changes — each `make_fixture()` copies this file into the fixture and runs the
+# real script against it, so a retyped PATH desyncs the tree from where the
+# copied library sends the script.
 #
-#   A test may retype a coordinate ONLY when a change to the declaration above
-#   makes that test FAIL LOUDLY. It may never retype one where a change above
-#   leaves the test green while it exercises the stale value.
-#
-# What decides it is what the fixture does with the value. Each suite's
-# `make_fixture()` COPIES this file into the fixture and runs the real script
-# against it, so a retyped PATH coordinate desyncs the tree the fixture builds
-# from the path the copied library tells the script to read: the script looks in
-# the new place, finds nothing, and the suite goes red. That covers `APP_ID` and
-# the `upstream` directory name in the suites that still spell them out, the
-# `v<version>` fixture directory names those suites build the vendored artefacts
-# under, the four `umbrel-app.yml` / `docker-compose.yml` /
-# `release-notes.txt` / `contract.json` filenames, the image coordinate that
-# `COMPOSE_IMAGE_ERE` is built from, and the contract path the release-driver
-# suite's fail-closed `gh` stub refuses any other value for.
-#
-# The `v<version>` names carry a second obligation the others do not, because
-# `vendor_dir_name` above is compared against a directory found on disk as well
-# as used to build paths: a re-inlined join at ONE of those sites would leave
-# every fixture that spells the name the way this file currently does still
-# green. So the three suites that exercise the derivation each carry a case
-# that REDECLARES `vendor_dir_name` in the fixture's own copy of this file and
-# requires the script to follow it end to end. A second spelling at any site
-# stops following, and that case goes red. The one name that needs no agreement
-# is the release suite's PREVIOUS-version directory: the driver removes every
-# directory it finds under the vendored root whatever it is called, so that
-# fixture name stands for "some leftover directory" rather than for this
-# coordinate.
-#
-# `NOTES_BLOCK_INDENT` is the one the condition above does not decide either
-# way, and saying why is the point of naming it here — a reader who assumed the
-# rule reached it would be assuming a guard that does not exist. A retyped
-# indent would leave the suite green, but so would a divergent one in
-# production, because nothing in this repo can tell the two apart: `emit_block()`
-# pads every body line uniformly, a folded scalar's block indent is taken from
-# its own content and is not part of the value a parser returns, and every
-# consumer here compares PARSED values — through `round_trip()` or a `get` —
-# never raw bytes. `round_trip(body, 2)` and `round_trip(body, 4)` therefore
-# return the same string by construction. That indent-stripping is a property of
-# the YAML block-scalar form itself rather than of the parser this repo happens
-# to use, so a reader of the shipped manifest sees the same value too.
-#
-# So routing every site through this one declaration is a single-source-of-truth
-# measure and nothing more: one value, read by the driver, by the drift gate, by
-# both test suites that emit a `releaseNotes` block, and by DEPLOY.md § 3.1's
-# hand-edit step, which sources this file two steps earlier — so no site has to
-# be kept in agreement with any other by hand. It is NOT a tested regression
-# guard, and it is not written up as one: a test asserting the on-disk padding
-# would pin a property that has no consequence anywhere, which is a test written
-# for the sake of having one.
+# `NOTES_BLOCK_INDENT` is the exception that rule does not reach, and it is
+# named here so nobody assumes a guard that is absent: a folded scalar's block
+# indent is taken from its own content and stripped on parse, so every consumer
+# here compares parsed values and a divergent indent would change nothing.
+# Routing it through one declaration is single-sourcing, not a tested guard.
 
 # --- Shared patterns ---------------------------------------------------------
 

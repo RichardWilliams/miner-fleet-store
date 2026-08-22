@@ -11,61 +11,32 @@
 # keeps the equivalent hand-edit as the recovery path for when this script
 # cannot run.
 #
-# WHAT IT NEVER DOES.
+# WHAT IT DOES, in order. Each step's own reasoning sits at that step below;
+# the decisions behind them are in DECISIONS.md, which is where they belong.
 #
-#   * It never accepts a digest as an argument, and never reads one from a file
-#     the upstream repo produced. It asks the registry itself for the multi-arch
-#     INDEX digest — the top-level `Digest:` line, never one of the indented
-#     per-platform entries under `Manifests:` (DECISIONS.md entry 4). That is
-#     what keeps the two repos' release scripts independent: this one can be run
-#     hours later, from another machine, with nothing carried between them.
-#   * It never falls through to hand-written release notes. A missing Release,
-#     an empty body, or a `gh` failure is a hard failure (DECISIONS.md entry 10).
-#   * It refuses either fetched artefact that carries one of FOUR credential
-#     shapes — the set declared in `scripts/lib/secret-patterns.sh`, which is
-#     what it checks and the whole of what it checks. A secret matching none of
-#     those four prefixes is NOT covered; this is a check against the likeliest
-#     accidental paste, not a guarantee that nothing sensitive gets through.
-#     Both artefacts are scanned while still staged, and a match stops the run
-#     naming the CATEGORY and never the matched text (DECISIONS.md entry 15).
-#   * It never writes a byte into the tree before the deployment contract has
-#     been asserted against the compose that is already there, so a mismatch
-#     leaves the working tree exactly as it was.
-#   * It never pushes, and never opens the PR. It prepares the bump, commits it
-#     and stops, printing the exact commands the operator runs next. A commit
-#     pushed from in here would arrive at a SHA nothing had validated: the
-#     push-time gates fire when this script is INVOKED and evaluate HEAD as it
-#     stands then, which is the commit BEFORE the bump (DECISIONS.md entry 16).
+#   1. Resolves the multi-arch INDEX digest from the registry, reading the
+#      top-level `Digest:` line rather than the indented per-platform entries
+#      under `Manifests:` (entry 4).
+#   2. Fetches the upstream Release body, and stops on a missing Release, an
+#      empty body or a `gh` failure (entry 10).
+#   3. Fetches `deploy/contract.json` at tag `vX.Y.Z`.
+#   4. Scans both staged artefacts for the four credential shapes declared in
+#      `scripts/lib/secret-patterns.sh` — that set is the whole of what it
+#      looks for, so a secret carrying none of those prefixes is not covered
+#      (entry 15).
+#   5. Asserts the contract against the current compose, before writing.
+#   6. Writes the bump, re-runs `RELEASE_GATES`, commits on `release-X.Y.Z`,
+#      and stops without pushing or opening a PR (entry 16).
 #
-# WHICH TESTS MAKE THE FOUR "never" BULLETS ABOVE TRUE. They are cross-cutting
-# properties of the whole run rather than of any one line, so they are named
-# here rather than left for a reader to trust:
+# The ordering in 4-5-6 is what leaves the tree as it was when a run refuses:
+# staged copies are checked first and the tree is written only afterwards. The
+# guard further down keeps that true across a crashed previous run.
 #
-#   * tree-untouched-on-refusal — tests/test-release.sh's `assert-tree-untouched`
-#     helper snapshots every file under the app and vendored directories, runs
-#     the driver, and re-snapshots. It is applied at eight refusal sites: the
-#     missing and empty Release, all three markdown refusals, both credential
-#     refusals, and the contract mismatch.
-#   * the refusal names the category and never the matched text —
-#     tests/test-check-secret-leak.sh's "the contract refusal never echoes the
-#     matched text" case, which greps the failure output for the credential it
-#     planted.
-#   * it never pushes and never opens the PR — tests/test-release.sh's
-#     "stop-short: the run says nothing has been pushed", "resume: still nothing
-#     pushed" (which checks the bare remote for the branch ref) and "resume:
-#     still no PR opened" (which counts the `gh` stub's create invocations).
-#   * it never accepts a digest argument — the two "argument:" cases covering
-#     the `tag@digest` and bare-digest forms.
-#
-# VENDOR-AT-BUMP-TIME. The two networked reads — the Release body and the
-# deployment contract at tag `vX.Y.Z` — happen HERE, once, on the operator's
-# machine where `gh`, `docker` and the network exist. Both artefacts are then
-# committed under `upstream/vX.Y.Z/`, and the two push-time gates that check
-# them are purely textual comparisons against those committed copies. The
-# version-encoded directory name is the staleness guard: a bump that forgets to
-# re-vendor, or a stale copy left beside a current one, fails the gates. See
-# DECISIONS.md entry 13 for the single policy and for what it does and does not
-# buy.
+# VENDOR-AT-BUMP-TIME. The two networked reads happen HERE, once, on the
+# operator's machine where `gh`, `docker` and the network exist. Both artefacts
+# are committed under `upstream/vX.Y.Z/` and the push-time gates compare against
+# those copies textually. The version-encoded directory name is the staleness
+# guard. DECISIONS.md entry 13 carries the policy and its limits.
 #
 # RESUMABLE, off real artefacts rather than off anything this script wrote down
 # on a previous run. Re-running for the same version after a mid-sequence

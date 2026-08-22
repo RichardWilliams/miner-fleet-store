@@ -16,15 +16,9 @@
 # WHY A CATEGORY NAME AND NEVER THE MATCH. A refusal that echoed the matched
 # text would disclose the credential a second time — into the operator's
 # terminal, their shell history, and the CI log of every run that reproduced it.
-# Callers therefore receive a CATEGORY LABEL and nothing else: `grep -q` prints
-# no match, and the nameref carries back a label drawn from the table below.
-#
-# BOTH CONSUMERS ARE TESTED FOR IT, which is what makes that a checkable
-# property rather than a promise. tests/test-check-secret-leak.sh's "the
-# contract refusal never echoes the matched text" covers the push-time gate, and
-# tests/test-release.sh's no-echo helper covers the driver, at both the Release
-# body and the deployment contract. Each plants a known credential-shaped value
-# and greps the whole failure output for it.
+# Callers therefore receive a category label: `grep -q` prints no match, and the
+# nameref carries back a label from the table below. Both consumers have a
+# no-echo test.
 #
 # WHAT IS DELIBERATELY NOT HERE: private-range and loopback IP literals. They
 # were considered and REFUSED. This application's whole purpose is sweeping the
