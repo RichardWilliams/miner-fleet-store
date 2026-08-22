@@ -38,9 +38,11 @@ repo_root="$(cd -P "${script_dir}/.." && pwd)"
 
 # fail() is shared with the sibling gates — see scripts/lib/check-common.sh.
 source "${script_dir}/lib/check-common.sh"
-# The app id, the two file paths, the semver shape and the pattern matching the
-# published image name are declared once — see scripts/lib/repo-context.sh and
-# INVARIANTS.md § Encapsulation.
+# The app id, the two file paths, the semver shape, the trailing-comment shape
+# and the whole-line pattern for the pinned `image:` line are declared once —
+# see scripts/lib/repo-context.sh and INVARIANTS.md § Encapsulation. The release
+# driver rewrites that line through the same COMPOSE_IMAGE_ERE this gate reads
+# it back with.
 source "${script_dir}/lib/repo-context.sh"
 
 manifest="${repo_root}/${MANIFEST_REL_PATH}"
@@ -62,7 +64,6 @@ compose="${repo_root}/${COMPOSE_REL_PATH}"
 # are valid YAML here; the quoting exists to stop YAML reading a two-component
 # version as a float, so an author may reasonably use either quote style), and a
 # trailing `# comment` on either line.
-readonly TRAILING_ERE='[[:space:]]*(#.*)?$'
 # Quote handling is an alternation of three whole forms, NOT two independently
 # optional quote classes. `['\"]?VALUE['\"]?` would accept a MISMATCHED pair
 # (`version: '0.1.0"`), which is not valid YAML, and passing it as "well-formed"
@@ -71,7 +72,6 @@ readonly TRAILING_ERE='[[:space:]]*(#.*)?$'
 # legal spellings are enumerated instead.
 readonly QUOTED_SEMVER_ERE="(\"${SEMVER_ERE}\"|'${SEMVER_ERE}'|${SEMVER_ERE})"
 readonly MANIFEST_VERSION_ERE="^version:[[:space:]]+${QUOTED_SEMVER_ERE}${TRAILING_ERE}"
-readonly COMPOSE_IMAGE_ERE="^[[:space:]]+image:[[:space:]]+${UPSTREAM_IMAGE_ERE}:${SEMVER_ERE}@sha256:[0-9a-f]{64}${TRAILING_ERE}"
 
 # A field appearing twice is ambiguous — the check cannot know which copy is
 # authoritative, and picking one would be a guess. Both zero matches and more
@@ -103,13 +103,15 @@ require_exactly_one "$compose_matches" "well-formed pinned 'image:' line" "$comp
 # anchored on, so the version was read out of the COMMENT instead of the real
 # pin. That produced a false PASS on genuine drift — the exact failure this
 # check exists to catch — and, in the mirror case, a false BLOCK on a correct
-# release. Comments next to this line are not hypothetical: the compose file's
-# own style writes prose about digests there, and DEPLOY.md's roll-back guidance
-# invites recording the previous tag beside it.
+# release. Comments next to this line are not hypothetical.
+#
+# The compose extraction now runs the whole-line COMPOSE_IMAGE_ERE that grep
+# just matched and takes its tag group, so the anchoring is not re-asserted by a
+# second hand-written pattern that could lose it again.
 manifest_version="$(grep -E "$MANIFEST_VERSION_ERE" "$manifest" \
   | sed -E "s/^version:[[:space:]]+//; s/[[:space:]]*#.*$//; s/^['\"]//; s/['\"]$//; s/[[:space:]]*$//")"
 compose_version="$(grep -E "$COMPOSE_IMAGE_ERE" "$compose" \
-  | sed -E "s|^[[:space:]]+image:[[:space:]]+${UPSTREAM_IMAGE_ERE}:||; s|@sha256:.*$||")"
+  | sed -E "s|${COMPOSE_IMAGE_ERE}|\\2|")"
 
 # Belt-and-braces: the extraction must itself produce a semver. If a future edit
 # to the patterns above lets something else through, this fails rather than

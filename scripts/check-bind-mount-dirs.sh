@@ -21,7 +21,8 @@ repo_root="$(cd -P "${script_dir}/.." && pwd)"
 
 # fail() is shared with the sibling gates — see scripts/lib/check-common.sh.
 source "${script_dir}/lib/check-common.sh"
-# The app id and the compose file's repo-relative path are declared once — see
+# The app id, the compose file's repo-relative path and the trailing-comment
+# shape every line pattern here ends with are declared once — see
 # scripts/lib/repo-context.sh and INVARIANTS.md § Encapsulation.
 source "${script_dir}/lib/repo-context.sh"
 
@@ -41,7 +42,6 @@ readonly APP_DATA_TOKEN="\${APP_DATA_DIR}"
 # (`[^[:space:]:]`) so `[:` cannot start a class name.
 readonly APP_DATA_ERE='\$\{APP_DATA_DIR\}'
 readonly LIST_ITEM_ERE='^[[:space:]]*-[[:space:]]+'
-readonly TRAILING_ERE='[[:space:]]*(#.*)?$'
 readonly SUBPATH_ERE='[[:alnum:]._-]+(/[[:alnum:]._-]+)*'
 readonly COMMENT_LINE_ERE='^[[:space:]]*#'
 

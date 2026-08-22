@@ -108,7 +108,37 @@ ere_escape() {
   printf '%s' "$escaped"
 }
 
-# The published image name as a POSIX ERE matching that name literally. Consumed
-# by the release driver, which rewrites the pinned `image:` line, and by
-# check-version-drift, which reads the tag out of it.
+# The published image name as a POSIX ERE matching that name literally.
 UPSTREAM_IMAGE_ERE="$(ere_escape "$UPSTREAM_IMAGE")"
+
+# The shape of an image digest reference — sha256 and its 64 lowercase hex
+# characters. The release driver reads one out of the registry's top-level
+# `Digest:` line; the pinned `image:` pattern below requires one.
+DIGEST_ERE='sha256:[0-9a-f]{64}'
+
+# What may legitimately follow a value on the YAML lines this repo parses:
+# optional whitespace, an optional `# comment`, then end of line. A trailing
+# comment is valid YAML and is written in practice — the compose file's own
+# style puts prose about digests beside the pin, and DEPLOY.md's roll-back
+# guidance invites recording the previous tag there — so a pattern that refused
+# one would block a correct release edit.
+TRAILING_ERE='[[:space:]]*(#.*)?$'
+
+# The pinned `image:` line of the compose file, as a whole-line POSIX ERE.
+#
+# The release driver rewrites the line this matches; check-version-drift reads
+# the release tag out of it. Both anchor on THIS string, so the reference the
+# driver emits is by construction the reference the gate accepts — there is no
+# writer spelling and reader spelling left to drift apart (INVARIANTS.md
+# § Encapsulation).
+#
+# Capture groups, in the order a match yields them:
+#   \1  through to the end of the image name — the part a rewrite keeps, with a
+#       fresh `:tag@digest` appended to it
+#   \2  the release tag
+#   \3  everything that trailed the digest, re-emitted verbatim by a rewrite so
+#       a comment beside the pin survives it
+#
+# TRAILING_ERE carries a `(#…)` group of its own, so \3 has a nested \4. No
+# consumer needs it; it is named here only so the numbering above is unambiguous.
+COMPOSE_IMAGE_ERE="^([[:space:]]+image:[[:space:]]+${UPSTREAM_IMAGE_ERE}):(${SEMVER_ERE})@${DIGEST_ERE}(${TRAILING_ERE})"

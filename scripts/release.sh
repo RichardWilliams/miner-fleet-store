@@ -60,7 +60,6 @@ source "${script_dir}/lib/check-common.sh"
 source "${script_dir}/lib/repo-context.sh"
 
 readonly HELPER="${script_dir}/lib/manifest_data.py"
-readonly DIGEST_ERE='sha256:[0-9a-f]{64}'
 # POSIX ERE only — no \d, \s or \b (INVARIANTS.md § Tool invocation correctness).
 # Anchored at line start, which is the entire reason the indented `Manifests:`
 # entries in the inspect output can never be read as the index digest.
@@ -221,18 +220,18 @@ set_block_out="$(python3 "$HELPER" set-block "$manifest" releaseNotes "${vendor_
   || fail "$set_block_out"
 
 # The image reference carries the tag AND the digest, and both halves move
-# together (DECISIONS.md entry 3). UPSTREAM_IMAGE_ERE is the image name with its
-# ERE metacharacters escaped, derived from UPSTREAM_IMAGE in
-# scripts/lib/repo-context.sh so the pattern cannot drift from the value.
-compose_image_ere="^([[:space:]]+image:[[:space:]]+${UPSTREAM_IMAGE_ERE}):${SEMVER_ERE}@${DIGEST_ERE}"
-image_matches="$(grep -cE "$compose_image_ere" "$compose" || true)"
+# together (DECISIONS.md entry 3). COMPOSE_IMAGE_ERE is the whole-line pattern
+# for that reference, declared in scripts/lib/repo-context.sh and shared with
+# check-version-drift — the gate that reads the tag back out matches on exactly
+# the pattern this rewrite emits.
+image_matches="$(grep -cE "$COMPOSE_IMAGE_ERE" "$compose" || true)"
 if (( image_matches != 1 )); then
   fail "expected exactly one pinned '${UPSTREAM_IMAGE}' image line in ${COMPOSE_REL_PATH}, found ${image_matches}; cannot determine which to rewrite"
 fi
 # A temp file plus a copy back, rather than `sed -i`, which is a GNU extension.
-# The pattern stops before any trailing comment, so a comment beside the pin
-# survives the rewrite untouched.
-sed -E "s|${compose_image_ere}|\\1:${version}@${digest}|" "$compose" > "${staging}/compose.out"
+# \1 is the line through to the image name and \3 is whatever trailed the
+# digest, so a comment beside the pin survives the rewrite untouched.
+sed -E "s|${COMPOSE_IMAGE_ERE}|\\1:${version}@${digest}\\3|" "$compose" > "${staging}/compose.out"
 cat "${staging}/compose.out" > "$compose"
 
 printf 'release: wrote version %s, image tag %s and digest %s\n' "$version" "$version" "$digest"
