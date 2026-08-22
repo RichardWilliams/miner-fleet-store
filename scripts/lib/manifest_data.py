@@ -54,7 +54,9 @@ from pathlib import Path
 
 try:
     import yaml
-except ImportError:  # pragma: no cover - environment defect, reported not hidden
+except ImportError:
+    # An environment defect rather than a data problem: reported by name so the
+    # operator knows to install PyYAML, never swallowed.
     sys.stderr.write(
         "manifest-data: PyYAML is not importable; this repo's gates cannot "
         "parse YAML without it (docker/Dockerfile.ci installs python3-yaml)\n"
