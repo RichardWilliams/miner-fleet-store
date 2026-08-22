@@ -30,17 +30,21 @@ repo_root="$(cd -P "${script_dir}/.." && pwd)"
 readonly SCRIPT_UNDER_TEST="${repo_root}/scripts/release.sh"
 readonly COMMON_LIB="${repo_root}/scripts/lib/check-common.sh"
 readonly CONTEXT_LIB="${repo_root}/scripts/lib/repo-context.sh"
+readonly RELEASE_LIB="${repo_root}/scripts/lib/release-context.sh"
 readonly PARSER_LIB="${repo_root}/scripts/lib/manifest_data.py"
 readonly PATTERNS_LIB="${repo_root}/scripts/lib/secret-patterns.sh"
 
-# The app id, the registry coordinate, both GitHub slugs and the gate list come
-# from the one place that declares them, so nothing is written a second time
-# here.
-[[ -f "$CONTEXT_LIB" ]] || {
-  printf 'FATAL: repo context library not found at %s\n' "$CONTEXT_LIB" >&2
-  exit 1
-}
+# The app id, the registry coordinate and both GitHub slugs come from the one
+# place that declares them, and the gate list from the one place that declares
+# that, so nothing is written a second time here.
+for library in "$CONTEXT_LIB" "$RELEASE_LIB"; do
+  [[ -f "$library" ]] || {
+    printf 'FATAL: library not found at %s\n' "$library" >&2
+    exit 1
+  }
+done
 source "$CONTEXT_LIB"
+source "$RELEASE_LIB"
 
 readonly PREVIOUS_VERSION="0.2.0"
 readonly TARGET_VERSION="0.3.0"
@@ -51,8 +55,8 @@ readonly INDEX_DIGEST="sha256:27c16fba762479efa4773aa477ede79e96f67bb633c554baa1
 # it is what the fixture inspect output is built to tempt.
 readonly PLATFORM_DIGEST="sha256:1111111111111111111111111111111111111111111111111111111111111111"
 
-for required in "$SCRIPT_UNDER_TEST" "$COMMON_LIB" "$CONTEXT_LIB" "$PARSER_LIB" \
-  "$PATTERNS_LIB"; do
+for required in "$SCRIPT_UNDER_TEST" "$COMMON_LIB" "$CONTEXT_LIB" "$RELEASE_LIB" \
+  "$PARSER_LIB" "$PATTERNS_LIB"; do
   [[ -f "$required" ]] || {
     printf 'FATAL: file under test not found at %s\n' "$required" >&2
     exit 1
@@ -294,6 +298,7 @@ make_fixture() {
   done
   cp "$COMMON_LIB" "${root}/scripts/lib/check-common.sh"
   cp "$CONTEXT_LIB" "${root}/scripts/lib/repo-context.sh"
+  cp "$RELEASE_LIB" "${root}/scripts/lib/release-context.sh"
   cp "$PARSER_LIB" "${root}/scripts/lib/manifest_data.py"
   cp "$PATTERNS_LIB" "${root}/scripts/lib/secret-patterns.sh"
 
@@ -430,6 +435,25 @@ count_release_commits() {
   printf 'commits on the release branch: %s\n' \
     "$(git -C "$1" rev-list --count "main..refs/heads/release-${TARGET_VERSION}")"
 }
+
+# The hand-off's own comparison. Every other case built on a captured
+# driver.out runs `grep` as its command, which is line-based and so cannot see a
+# property spanning two lines of the printed command. This reads the whole
+# capture into one string and compares it against an expected value that carries
+# its own line breaks, which is what lets a case assert the COMPOSED invocation
+# rather than the presence of the words in it.
+readonly HANDOFF_CHECK="${scratch}/assert-handoff-command.sh"
+cat > "$HANDOFF_CHECK" <<'HANDOFF'
+#!/usr/bin/env bash
+# $1 = the captured driver output, $2 = the composed invocation it must carry,
+# line breaks and all.
+set -euo pipefail
+if [[ "$(cat "$1")" != *"$2"* ]]; then
+  printf 'the hand-off did not carry the expected invocation:\n%s\n' "$2" >&2
+  exit 1
+fi
+printf 'the hand-off carries the composed invocation\n'
+HANDOFF
 
 readonly PR_COUNT_CHECK="${scratch}/count-created-prs.sh"
 cat > "$PR_COUNT_CHECK" <<'COUNT'
@@ -716,9 +740,9 @@ assert_case 'one declaration: nothing is left under the old spelling' 1 '' \
 #
 # The first case requires every declared gate to be named. That alone would stay
 # green against a hand-written sentence that happened to agree today, so the
-# second REDECLARES the array in the fixture's own copy of the context library
-# and requires the sentence to follow it — which only a built one can do. The
-# redeclaration is APPENDED: the declarations in that library are plain
+# second REDECLARES the array in the fixture's own copy of the release-context
+# library and requires the sentence to follow it — which only a built one can
+# do. The redeclaration is APPENDED: the declarations in that library are plain
 # assignments precisely so a later one supersedes an earlier one, and the driver
 # sources the file once.
 # ---------------------------------------------------------------------------
@@ -732,7 +756,7 @@ done
 
 root="$(make_fixture redeclared_gate_list)"
 printf '\nRELEASE_GATES=(\n  check-version-drift\n)\n' \
-  >> "${root}/scripts/lib/repo-context.sh"
+  >> "${root}/scripts/lib/release-context.sh"
 capture_release "$root" "$TARGET_VERSION"
 
 assert_case 'one declaration: the redeclared run still succeeds' 0 '' \
@@ -743,6 +767,31 @@ assert_case 'one declaration: the PR body follows a redeclared gate list' 0 '' \
 
 assert_case 'one declaration: a gate no longer declared is not named' 1 '' \
   grep -F '`check-secret-leak.sh`' "${root}/.stub/driver.out"
+
+# ---------------------------------------------------------------------------
+# THE HAND-OFF NAMES THE RIGHT PR. The driver prints the `gh pr create` command
+# and never runs one (DECISIONS.md entry 16), so that printed command is the
+# SOLE path by which the release PR is opened and nothing else in this repo
+# checks how it is composed. A wrong `--repo` would open the PR against another
+# repo, a wrong `--head` against another branch, and a wrong `--title` would
+# carry a squash-merge subject naming the wrong version — none of which any gate
+# or any other case here would catch, because the command is text the operator
+# runs later rather than a call this suite's fail-closed `gh` stub ever sees.
+#
+# The WHOLE composed invocation is asserted rather than the presence of the
+# three flags, so a value substituted for another fails the case. The slug is
+# read from the one declaration; the branch prefix and the title are the
+# driver's own spellings, and a change to either goes red here.
+# ---------------------------------------------------------------------------
+root="$(make_fixture hand_off_command)"
+capture_release "$root" "$TARGET_VERSION"
+
+expected_handoff="$(printf '  gh pr create --repo %s --head release-%s \\\n    --title "chore(release): pin miner-fleet %s" \\\n' \
+  "$STORE_REPO_SLUG" "$TARGET_VERSION" "$TARGET_VERSION")"
+
+assert_case 'hand-off: the printed gh pr create carries the right --repo, --head and --title' \
+  0 'the hand-off carries the composed invocation' \
+  bash "$HANDOFF_CHECK" "${root}/.stub/driver.out" "$expected_handoff"
 
 # ---------------------------------------------------------------------------
 # EVERY DECLARED GATE ALSO RUNS AT PUSH TIME. `.local-ci.yml` is the one site

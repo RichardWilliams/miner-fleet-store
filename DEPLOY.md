@@ -109,7 +109,7 @@ In order, it:
    in `pipfox-miner-fleet/docker-compose.yml`, and both fetched artefacts into
    `upstream/vX.Y.Z/`, removing the previous version's directory.
 7. **Re-runs every gate in `RELEASE_GATES`** — the list declared once in
-   `scripts/lib/repo-context.sh`, which is also the list this document's
+   `scripts/lib/release-context.sh`, which is also the list this document's
    recovery path runs in § 3.1 step 5 — against the tree it just wrote.
 8. **Commits the bump on branch `release-X.Y.Z`, and stops there.** It does not
    push and it does not open the PR. The push-time gates evaluate whatever is
@@ -204,11 +204,14 @@ pass before the push.
    ```
 
 5. **Run the gates locally** before pushing. Which gates those are comes from
-   `RELEASE_GATES` in `scripts/lib/repo-context.sh`, exported by the `source` in
-   step 3 — the same declaration the driver reads, so this hand path is verified
-   by exactly the set a driver-cut release is:
+   `RELEASE_GATES` in `scripts/lib/release-context.sh` — the same declaration
+   the driver reads, so this hand path is verified by exactly the set a
+   driver-cut release is. That library holds the release procedure's own
+   knowledge and declares no coordinate, so it is a second `source` rather than
+   part of step 3's:
 
    ```bash
+   source scripts/lib/release-context.sh
    for gate in "${RELEASE_GATES[@]}"; do
      bash "scripts/${gate}.sh"
    done

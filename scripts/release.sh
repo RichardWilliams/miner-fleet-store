@@ -67,11 +67,16 @@ repo_root="$(cd -P "${script_dir}/.." && pwd)"
 
 # fail() is shared with this repo's gates — see scripts/lib/check-common.sh.
 source "${script_dir}/lib/check-common.sh"
-# The GitHub coordinates, the registry coordinate, the shared paths, the gates a
-# release is verified by (RELEASE_GATES) and the patterns derived from them are
-# declared once — see scripts/lib/repo-context.sh and INVARIANTS.md
-# § Encapsulation.
+# The GitHub coordinates, the registry coordinate, the shared paths and the
+# patterns derived from them are declared once — see scripts/lib/repo-context.sh
+# and INVARIANTS.md § Encapsulation.
 source "${script_dir}/lib/repo-context.sh"
+# The gates a release is verified by (RELEASE_GATES) and the one rendering of
+# that list this script's hand-off prints (render_gate_list) are the release
+# procedure's own knowledge rather than a coordinate, so they are declared in
+# the domain-scoped sibling that same invariant provides for — see
+# scripts/lib/release-context.sh.
+source "${script_dir}/lib/release-context.sh"
 # The credential shapes this repo refuses to publish, and the scan itself, are
 # shared with scripts/check-secret-leak.sh — see scripts/lib/secret-patterns.sh.
 source "${script_dir}/lib/secret-patterns.sh"
@@ -86,28 +91,6 @@ readonly TOP_LEVEL_DIGEST_ERE="^Digest:[[:space:]]+${DIGEST_ERE}[[:space:]]*$"
 # The verified finding this script refuses markdown on. Stated once, quoted by
 # each of the three refusals.
 readonly MARKDOWN_RATIONALE="Umbrel's Markdown component short-circuits for community app stores: on a /community-app-store page it renders the raw string in a plain whitespace-pre-line div and bypasses react-markdown entirely, so '**' renders as literal asterisks, a [text](url) link as literal brackets and parens, and a leading '#' as literal hashes. The updates dialog renders the SAME string through the same component but keys on the CURRENT route, so opened from outside /community-app-store it DOES render markdown. Two surfaces, two results — plain prose is the only spelling correct on both (DECISIONS.md entry 11). Edit the Release body upstream, then re-run."
-
-# render_gate_list — the declared gates as one backticked English list.
-#
-# The hand-off's PR body has to name the gates the run verified with, and a
-# sentence typed beside RELEASE_GATES is a second copy of it in prose. The copy
-# this replaced had already drifted: it named three gates while the array ran
-# four, having missed check-secret-leak.sh when that gate was added. Building
-# the sentence from the array removes the second copy — change the array and the
-# sentence moves with it (INVARIANTS.md § Encapsulation).
-render_gate_list() {
-  local rendered="" index=0
-  local last=$(( ${#RELEASE_GATES[@]} - 1 ))
-  for (( index = 0; index <= last; index++ )); do
-    if (( index == last && index > 0 )); then
-      rendered+=" and "
-    elif (( index > 0 )); then
-      rendered+=", "
-    fi
-    rendered+="\`${RELEASE_GATES[index]}.sh\`"
-  done
-  printf '%s' "$rendered"
-}
 
 # --- guards: CLI, then work tree, then files ---------------------------------
 
