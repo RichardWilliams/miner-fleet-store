@@ -24,12 +24,14 @@ set -euo pipefail
 script_dir="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -P "${script_dir}/.." && pwd)"
 
-readonly APP_ID="pipfox-miner-fleet"
-readonly SERVICE="server"
-compose="${repo_root}/${APP_ID}/docker-compose.yml"
-
 # fail() is shared with the sibling gates — see scripts/lib/check-common.sh.
 source "${script_dir}/lib/check-common.sh"
+# The compose file's repo-relative path is declared once — see
+# scripts/lib/repo-context.sh and INVARIANTS.md § Encapsulation.
+source "${script_dir}/lib/repo-context.sh"
+
+readonly SERVICE="server"
+compose="${repo_root}/${COMPOSE_REL_PATH}"
 
 # Guard order: existence, then readability, before any parsing — so a permission
 # problem names its real cause instead of falling through to a parse diagnostic.
@@ -68,7 +70,7 @@ for (( i = 0; i < ${#lines[@]}; i++ )); do
   fi
 done
 if (( services_index < 0 )); then
-  fail "no top-level 'services:' key found in ${APP_ID}/docker-compose.yml — this check could not locate the service block it asserts on, so it verified nothing."
+  fail "no top-level 'services:' key found in ${COMPOSE_REL_PATH} — this check could not locate the service block it asserts on, so it verified nothing."
 fi
 
 # Walk the block, classifying every line by indent and collecting the `server`
@@ -87,7 +89,7 @@ for (( i = services_index + 1; i < ${#lines[@]}; i++ )); do
   [[ "$line" =~ ^([[:space:]]*) ]]
   leading="${BASH_REMATCH[1]}"
   if [[ "$leading" == *[!\ ]* ]]; then
-    fail "non-space indentation on line '${line}' in ${APP_ID}/docker-compose.yml — YAML forbids tabs for indentation and this check cannot place the line in a service, so it refuses rather than guessing."
+    fail "non-space indentation on line '${line}' in ${COMPOSE_REL_PATH} — YAML forbids tabs for indentation and this check cannot place the line in a service, so it refuses rather than guessing."
   fi
   indent=${#leading}
 
@@ -98,7 +100,7 @@ for (( i = services_index + 1; i < ${#lines[@]}; i++ )); do
 
   if (( indent == service_indent )); then
     if [[ ! "$line" =~ $SERVICE_KEY_ERE ]]; then
-      fail "unclassifiable indentation: line '${line}' in ${APP_ID}/docker-compose.yml sits at the service-key indent (${service_indent}) but is not a '<name>:' service key, so this check cannot tell which service it belongs to."
+      fail "unclassifiable indentation: line '${line}' in ${COMPOSE_REL_PATH} sits at the service-key indent (${service_indent}) but is not a '<name>:' service key, so this check cannot tell which service it belongs to."
     fi
     current_service="${BASH_REMATCH[1]}"
     if [[ "$current_service" == "$SERVICE" ]]; then
@@ -109,7 +111,7 @@ for (( i = services_index + 1; i < ${#lines[@]}; i++ )); do
   fi
 
   if (( indent < service_indent )); then
-    fail "unclassifiable indentation: line '${line}' in ${APP_ID}/docker-compose.yml is indented ${indent}, deeper than a top-level key but shallower than the service-key indent (${service_indent}). A line this check cannot attribute to a service is a failure, not a skip."
+    fail "unclassifiable indentation: line '${line}' in ${COMPOSE_REL_PATH} is indented ${indent}, deeper than a top-level key but shallower than the service-key indent (${service_indent}). A line this check cannot attribute to a service is a failure, not a skip."
   fi
 
   if [[ "$current_service" == "$SERVICE" ]]; then
@@ -119,7 +121,7 @@ for (( i = services_index + 1; i < ${#lines[@]}; i++ )); do
 done
 
 if (( seen_server == 0 )); then
-  fail "no '${SERVICE}' service found under 'services:' in ${APP_ID}/docker-compose.yml — the service name is a hard naming contract (DECISIONS.md entry 1) and this check has nothing to assert on without it."
+  fail "no '${SERVICE}' service found under 'services:' in ${COMPOSE_REL_PATH} — the service name is a hard naming contract (DECISIONS.md entry 1) and this check has nothing to assert on without it."
 fi
 # A duplicate top-level service key is ambiguous input: this walk aggregates
 # every line from every occurrence into server_lines, so a hardened first block
@@ -128,10 +130,10 @@ fi
 # does not reproduce that; it fails on the ambiguity instead (same house
 # posture as scripts/check-version-drift.sh's require_exactly_one).
 if (( server_occurrences > 1 )); then
-  fail "duplicate '${SERVICE}:' service key found ${server_occurrences} times under 'services:' in ${APP_ID}/docker-compose.yml — a repeated service key is ambiguous input this check refuses to resolve by picking a winner. Remove the duplicate."
+  fail "duplicate '${SERVICE}:' service key found ${server_occurrences} times under 'services:' in ${COMPOSE_REL_PATH} — a repeated service key is ambiguous input this check refuses to resolve by picking a winner. Remove the duplicate."
 fi
 if (( ${#server_lines[@]} == 0 )); then
-  fail "the '${SERVICE}' service in ${APP_ID}/docker-compose.yml declares no directives, so this check verified nothing."
+  fail "the '${SERVICE}' service in ${COMPOSE_REL_PATH} declares no directives, so this check verified nothing."
 fi
 
 # The server service's OWN directive-level indent: the indent of the first
@@ -173,7 +175,7 @@ collect_sequence() {
     fi
   done
   if (( key_occurrences > 1 )); then
-    fail "the ${SERVICE} service declares '${key}:' ${key_occurrences} times in ${APP_ID}/docker-compose.yml. A duplicate directive key is ambiguous input this check refuses to resolve by picking a winner. Remove the duplicate."
+    fail "the ${SERVICE} service declares '${key}:' ${key_occurrences} times in ${COMPOSE_REL_PATH}. A duplicate directive key is ambiguous input this check refuses to resolve by picking a winner. Remove the duplicate."
   fi
 
   for (( i = 0; i < ${#server_lines[@]}; i++ )); do
@@ -182,7 +184,7 @@ collect_sequence() {
       if [[ "${server_lines[$i]}" =~ ^[[:space:]]*${key}:[[:space:]]*$ ]]; then
         key_indent="${server_indents[$i]}"
       elif [[ "${server_lines[$i]}" =~ ^[[:space:]]*${key}:[[:space:]]*[^[:space:]] ]]; then
-        fail "'${key}:' on the ${SERVICE} service is written as an inline flow value ('${server_lines[$i]}') in ${APP_ID}/docker-compose.yml. This check parses block sequences only; it does not parse the flow form, so it refuses rather than reporting a result it never established. Write '${key}:' as a block sequence."
+        fail "'${key}:' on the ${SERVICE} service is written as an inline flow value ('${server_lines[$i]}') in ${COMPOSE_REL_PATH}. This check parses block sequences only; it does not parse the flow form, so it refuses rather than reporting a result it never established. Write '${key}:' as a block sequence."
       fi
       continue
     fi
@@ -205,14 +207,14 @@ sequence_contains() {
 }
 
 collect_sequence cap_drop \
-  || fail "the ${SERVICE} service declares no 'cap_drop:' block sequence in ${APP_ID}/docker-compose.yml. Dropping all capabilities is what makes privilege escalation unavailable to the app container (DECISIONS.md entry 6)."
+  || fail "the ${SERVICE} service declares no 'cap_drop:' block sequence in ${COMPOSE_REL_PATH}. Dropping all capabilities is what makes privilege escalation unavailable to the app container (DECISIONS.md entry 6)."
 sequence_contains ALL \
-  || fail "the ${SERVICE} service's 'cap_drop:' does not drop ALL in ${APP_ID}/docker-compose.yml — it lists '${sequence_items[*]}'. Restore '- ALL' (DECISIONS.md entry 6)."
+  || fail "the ${SERVICE} service's 'cap_drop:' does not drop ALL in ${COMPOSE_REL_PATH} — it lists '${sequence_items[*]}'. Restore '- ALL' (DECISIONS.md entry 6)."
 
 collect_sequence security_opt \
-  || fail "the ${SERVICE} service declares no 'security_opt:' block sequence in ${APP_ID}/docker-compose.yml. Restore '- no-new-privileges:true' (DECISIONS.md entry 6)."
+  || fail "the ${SERVICE} service declares no 'security_opt:' block sequence in ${COMPOSE_REL_PATH}. Restore '- no-new-privileges:true' (DECISIONS.md entry 6)."
 sequence_contains 'no-new-privileges:true' \
-  || fail "the ${SERVICE} service's 'security_opt:' does not set no-new-privileges:true in ${APP_ID}/docker-compose.yml — it lists '${sequence_items[*]}'. Restore it (DECISIONS.md entry 6)."
+  || fail "the ${SERVICE} service's 'security_opt:' does not set no-new-privileges:true in ${COMPOSE_REL_PATH} — it lists '${sequence_items[*]}'. Restore it (DECISIONS.md entry 6)."
 
 # Scoped to the server service's OWN directive-level indent — directive_indent,
 # computed once above and already reused by collect_sequence()'s own duplicate
@@ -224,10 +226,10 @@ for (( i = 0; i < ${#server_lines[@]}; i++ )); do
   line="${server_lines[$i]}"
   (( server_indents[i] != directive_indent )) && continue
   if [[ "$line" =~ $NETWORK_HOST_ERE ]]; then
-    fail "the ${SERVICE} service declares network_mode: host in ${APP_ID}/docker-compose.yml ('${line}'). Bridge networking already reaches the miners, and host networking costs the app_proxy auth layer in front of the app (DECISIONS.md entry 2)."
+    fail "the ${SERVICE} service declares network_mode: host in ${COMPOSE_REL_PATH} ('${line}'). Bridge networking already reaches the miners, and host networking costs the app_proxy auth layer in front of the app (DECISIONS.md entry 2)."
   fi
   if [[ "$line" =~ $PORTS_KEY_ERE ]]; then
-    fail "the ${SERVICE} service publishes a host port in ${APP_ID}/docker-compose.yml ('${line}'). Umbrel reaches the app through app_proxy on the manifest's 'port:', so a published port would expose the app container bypassing that auth layer (DECISIONS.md entry 1)."
+    fail "the ${SERVICE} service publishes a host port in ${COMPOSE_REL_PATH} ('${line}'). Umbrel reaches the app through app_proxy on the manifest's 'port:', so a published port would expose the app container bypassing that auth layer (DECISIONS.md entry 1)."
   fi
 done
 

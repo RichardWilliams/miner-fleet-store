@@ -14,6 +14,7 @@ script_dir="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -P "${script_dir}/.." && pwd)"
 readonly SCRIPT_UNDER_TEST="${repo_root}/scripts/check-compose-hardening.sh"
 readonly LIB_UNDER_TEST="${repo_root}/scripts/lib/check-common.sh"
+readonly CONTEXT_LIB="${repo_root}/scripts/lib/repo-context.sh"
 readonly APP_ID="pipfox-miner-fleet"
 
 [[ -f "$SCRIPT_UNDER_TEST" ]] || {
@@ -22,6 +23,10 @@ readonly APP_ID="pipfox-miner-fleet"
 }
 [[ -f "$LIB_UNDER_TEST" ]] || {
   printf 'FATAL: shared check lib not found at %s\n' "$LIB_UNDER_TEST" >&2
+  exit 1
+}
+[[ -f "$CONTEXT_LIB" ]] || {
+  printf 'FATAL: repo-context lib not found at %s\n' "$CONTEXT_LIB" >&2
   exit 1
 }
 
@@ -43,6 +48,7 @@ make_fixture() {
   cp "$SCRIPT_UNDER_TEST" "${root}/scripts/check-compose-hardening.sh"
   chmod +x "${root}/scripts/check-compose-hardening.sh"
   cp "$LIB_UNDER_TEST" "${root}/scripts/lib/check-common.sh"
+  cp "$CONTEXT_LIB" "${root}/scripts/lib/repo-context.sh"
   printf '%s\n' "$compose_body" > "${root}/${APP_ID}/docker-compose.yml"
   printf '%s' "$root"
 }
