@@ -20,6 +20,18 @@
 # What this image IS used for: the base provides bash and the runner that reads
 # .local-ci.yml, which is what the validation steps need. Restore the template's
 # npm shape only if this repo ever gains real Node dependencies.
+#
+# THE ONE ADDED LAYER — python3-yaml. The gates read the app manifest, the
+# compose file and the vendored deployment contract with a real parser rather
+# than by grepping structured documents. The base image carries python3 but no
+# YAML parser at all, and carries neither `jq` nor `yq`, so python3 plus PyYAML
+# is the only parser both this image and the operator's machine are guaranteed
+# to have. Installed from apt rather than pip because the base ships a
+# distribution python3, and the lists are cleaned in the same layer so the image
+# does not carry an apt cache.
 FROM ghcr.io/richardwilliams/node-ci:v0.1.3@sha256:5409e3507f25fa391f9b19cb827ffb818808931b166802881f8dc7ee7a22fc92
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3-yaml \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY . .

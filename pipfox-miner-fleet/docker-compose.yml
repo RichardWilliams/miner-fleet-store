@@ -17,9 +17,12 @@ services:
     # release-image.yml — not the inner per-platform manifest digest — because
     # umbreld resolves the index. Bump both halves together on every release;
     # DEPLOY.md names this line as one of the two edit sites.
-    # The image NAME is also hardcoded in scripts/check-version-drift.sh — see
-    # that file's IMAGE_NAME_ERE for why both sites move together.
-    image: ghcr.io/richardwilliams/miner-fleet:0.2.0@sha256:83de64211b8e6b0293df25fa718d387f5a07e8c841da80b5792213461f3d50ab
+    # The image NAME has one home: scripts/lib/repo-context.sh declares it as
+    # UPSTREAM_IMAGE and derives UPSTREAM_IMAGE_ERE from it, and the release
+    # driver and every gate source that file. Republishing under a different
+    # name is an edit to that declaration; check-version-drift fails closed the
+    # moment this line stops matching what it derives.
+    image: ghcr.io/richardwilliams/miner-fleet:0.3.0@sha256:27c16fba762479efa4773aa477ede79e96f67bb633c554baa1d820f0429419f8
     restart: on-failure
     stop_grace_period: 1m
 

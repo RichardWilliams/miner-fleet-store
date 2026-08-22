@@ -36,12 +36,15 @@ set -euo pipefail
 script_dir="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -P "${script_dir}/.." && pwd)"
 
-readonly APP_ID="pipfox-miner-fleet"
-manifest="${repo_root}/${APP_ID}/umbrel-app.yml"
-compose="${repo_root}/${APP_ID}/docker-compose.yml"
-
 # fail() is shared with the sibling gates — see scripts/lib/check-common.sh.
 source "${script_dir}/lib/check-common.sh"
+# The app id, the two file paths, the semver shape and the pattern matching the
+# published image name are declared once — see scripts/lib/repo-context.sh and
+# INVARIANTS.md § Encapsulation.
+source "${script_dir}/lib/repo-context.sh"
+
+manifest="${repo_root}/${MANIFEST_REL_PATH}"
+compose="${repo_root}/${COMPOSE_REL_PATH}"
 
 # Guard order: required files before any parsing, so a missing file produces a
 # clear diagnostic rather than an empty-match error further down.
@@ -59,14 +62,7 @@ source "${script_dir}/lib/check-common.sh"
 # are valid YAML here; the quoting exists to stop YAML reading a two-component
 # version as a float, so an author may reasonably use either quote style), and a
 # trailing `# comment` on either line.
-#
-# The image name is duplicated in pipfox-miner-fleet/docker-compose.yml. Both
-# sites must move together if the app is ever republished under a different
-# name; this check fails closed on a mismatch rather than passing silently, so a
-# half-done rename surfaces here rather than on the operator's box.
-readonly SEMVER_ERE='[0-9]+\.[0-9]+\.[0-9]+'
 readonly TRAILING_ERE='[[:space:]]*(#.*)?$'
-readonly IMAGE_NAME_ERE='ghcr\.io/richardwilliams/miner-fleet'
 # Quote handling is an alternation of three whole forms, NOT two independently
 # optional quote classes. `['\"]?VALUE['\"]?` would accept a MISMATCHED pair
 # (`version: '0.1.0"`), which is not valid YAML, and passing it as "well-formed"
@@ -75,7 +71,7 @@ readonly IMAGE_NAME_ERE='ghcr\.io/richardwilliams/miner-fleet'
 # legal spellings are enumerated instead.
 readonly QUOTED_SEMVER_ERE="(\"${SEMVER_ERE}\"|'${SEMVER_ERE}'|${SEMVER_ERE})"
 readonly MANIFEST_VERSION_ERE="^version:[[:space:]]+${QUOTED_SEMVER_ERE}${TRAILING_ERE}"
-readonly COMPOSE_IMAGE_ERE="^[[:space:]]+image:[[:space:]]+${IMAGE_NAME_ERE}:${SEMVER_ERE}@sha256:[0-9a-f]{64}${TRAILING_ERE}"
+readonly COMPOSE_IMAGE_ERE="^[[:space:]]+image:[[:space:]]+${UPSTREAM_IMAGE_ERE}:${SEMVER_ERE}@sha256:[0-9a-f]{64}${TRAILING_ERE}"
 
 # A field appearing twice is ambiguous — the check cannot know which copy is
 # authoritative, and picking one would be a guess. Both zero matches and more
@@ -113,7 +109,7 @@ require_exactly_one "$compose_matches" "well-formed pinned 'image:' line" "$comp
 manifest_version="$(grep -E "$MANIFEST_VERSION_ERE" "$manifest" \
   | sed -E "s/^version:[[:space:]]+//; s/[[:space:]]*#.*$//; s/^['\"]//; s/['\"]$//; s/[[:space:]]*$//")"
 compose_version="$(grep -E "$COMPOSE_IMAGE_ERE" "$compose" \
-  | sed -E "s|^[[:space:]]+image:[[:space:]]+${IMAGE_NAME_ERE}:||; s|@sha256:.*$||")"
+  | sed -E "s|^[[:space:]]+image:[[:space:]]+${UPSTREAM_IMAGE_ERE}:||; s|@sha256:.*$||")"
 
 # Belt-and-braces: the extraction must itself produce a semver. If a future edit
 # to the patterns above lets something else through, this fails rather than
@@ -122,7 +118,7 @@ compose_version="$(grep -E "$COMPOSE_IMAGE_ERE" "$compose" \
 [[ "$compose_version" =~ ^${SEMVER_ERE}$ ]] || fail "extracted compose image tag '${compose_version}' is not a semver"
 
 if [[ "$manifest_version" != "$compose_version" ]]; then
-  fail "version drift: ${APP_ID}/umbrel-app.yml declares '${manifest_version}' but ${APP_ID}/docker-compose.yml pins image tag '${compose_version}'. Umbrel would display ${manifest_version} while running ${compose_version}. Both move together — see DEPLOY.md § 3."
+  fail "version drift: ${MANIFEST_REL_PATH} declares '${manifest_version}' but ${COMPOSE_REL_PATH} pins image tag '${compose_version}'. Umbrel would display ${manifest_version} while running ${compose_version}. Both move together — see DEPLOY.md § 3."
 fi
 
 printf 'check-version-drift: OK: manifest and compose agree on %s\n' "$manifest_version"

@@ -1,0 +1,20 @@
+Miner Fleet 0.3.0
+
+Firmware versions are now visible across the fleet. Each board shows the firmware
+it is running alongside the latest release published for its model, with an
+indicator when an update is available. Nothing is written to your miners to
+collect this: the installed version comes from telemetry the app already reads,
+and the latest version comes from the public firmware release pages. If your box
+cannot reach the internet the column stays blank and the rest of the dashboard is
+unaffected.
+
+Two fixes to how the app watches your fleet:
+
+  - Warnings now fire for boards found by network discovery. Samples taken on the
+    discovery path were stored without being checked against the warning rules,
+    so any warning that depends on a value changing over time stayed silent for
+    those boards.
+
+  - The app now runs a single polling loop. Three were running in one process
+    against the same database, repeating the same work every cycle.
+

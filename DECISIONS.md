@@ -16,6 +16,13 @@ crash loop caused by that entry's original, unverified claim about who creates
 and owns the bind-mount source. That same PR appended entry 9, recording the
 gate it added to enforce the `server` service's hardening mechanically.
 
+Entries 10-13 are appended by the PR closing `#11` — the PR that added the
+release driver `scripts/release.sh` and the two fail-closed gates beside it
+(`scripts/check-release-notes-drift.sh`, `scripts/check-deploy-contract.sh`).
+They record, in order: where the listing's release notes come from, how they are
+spelled, which direction the compose-versus-contract relationship runs in, and
+the single policy that keeps both new gates off the network.
+
 ---
 
 ## 1. Store id `pipfox`, app id `pipfox-miner-fleet`, app directory name equal to the app id, compose service named `server`
@@ -374,3 +381,167 @@ what makes a published host port unnecessary), or the app acquires a genuine nee
 for host networking or a retained capability. In either case entries 1, 2 or 6
 change first and this gate follows them — the gate is downstream of those
 decisions, never the reason to keep one.
+
+---
+
+## 10. `releaseNotes` is the upstream GitHub Release body, never authored here
+
+**Statement.** `pipfox-miner-fleet/umbrel-app.yml`'s `releaseNotes` is a copy of
+the `RichardWilliams/miner-fleet` GitHub Release body for the version being
+pinned. It is fetched by `scripts/release.sh`, vendored at
+`upstream/vX.Y.Z/release-notes.txt`, and written into the manifest from that
+file. It is never composed here, never edited here, and never partially
+rewritten here. A missing Release, an empty body, or a `gh` failure stops the
+release; there is no fall-through to hand-written text.
+
+**Why.** The narrative an operator reads has exactly one author, upstream, where
+the change was actually made. Writing it a second time in a packaging manifest
+produces two copies of the same operator-facing text with nothing tying them
+together — and the copy drifts silently, because nothing about a stale listing
+looks wrong. The hard failure is the load-bearing half: a release that could
+quietly proceed on hand-written notes would restore exactly the second-original
+problem the first sentence removes, on precisely the releases where somebody was
+in a hurry. `scripts/check-release-notes-drift.sh` makes the copy checkable at
+push time, so the rule survives the next release rather than resting on whoever
+cuts it remembering this entry.
+
+**Revisit if.** umbrelOS gains a listing field whose content genuinely has no
+upstream equivalent — packaging-only guidance an application Release could not
+sensibly carry — at which point that field is a NEW field with its own source,
+and `releaseNotes` still comes from the Release. Or miner-fleet stops publishing
+GitHub Releases, in which case the authoritative home for the narrative moves and
+this entry names its new location before any listing text is written by hand.
+
+---
+
+## 11. `releaseNotes` is plain prose with no markdown
+
+**Statement.** The release-notes text carries no markdown syntax: no `**`, no
+`[text](url)` links, and no line beginning with `#`. URLs are spelled out in
+prose and lists are written as literal indented `  - ` lines.
+`scripts/release.sh` refuses a body containing any of the three, naming the
+reason, rather than writing it into the manifest.
+
+**Why.** This is a verified property of umbrelOS, not a style preference.
+`getumbrel/umbrel`'s `packages/ui/src/components/markdown.tsx` short-circuits
+when the current path starts with `/community-app-store`: it returns the raw
+string in a plain `whitespace-pre-line` div and bypasses react-markdown
+entirely. A community app's detail page is served under exactly that path, so on
+this app's own store page `**bold**` renders as literal asterisks, a link
+renders as literal brackets and parens, and `## H` renders as literal hashes.
+
+The split is what forces the rule rather than merely suggesting it.
+`packages/ui/src/modules/app-store/updates-dialog.tsx` renders `releaseNotes`
+through the SAME component, but the branch keys on the CURRENT route — so opened
+from outside `/community-app-store` the same string DOES render as markdown. One
+string, two surfaces, two results. Plain prose is the only spelling that is
+correct on both, and it is what the shipped first-party manifests (immich, n8n,
+home-assistant, vaultwarden, transmission, jellyfin, nextcloud) all use.
+
+The corollary is worth stating because it is what makes plain prose readable
+rather than a compromise: `whitespace-pre-line` PRESERVES newlines, so a `>-`
+folded scalar's blank-line-separated paragraphs and more-indented bullet lines
+render as intended on both surfaces.
+
+**Revisit if.** The `isInCommunityAppStore` short-circuit is removed from
+`markdown.tsx` upstream, or the community-store route stops matching it —
+verified by reading that component's source, not by observing that one string
+happened to render acceptably on one screen.
+
+---
+
+## 12. This repo ASSERTS the compose against the upstream deployment contract; it never generates it
+
+**Statement.** `miner-fleet` publishes a generated `deploy/contract.json`
+declaring the container port, the health path, the data-directory environment key
+and its default, and the required environment keys.
+`scripts/check-deploy-contract.sh` reads that contract at the PINNED tag and
+asserts that `pipfox-miner-fleet/docker-compose.yml` still satisfies it. The
+compose is never generated, templated, rewritten or emitted from the contract.
+That direction is permanent.
+
+The gate's unknown-field rule is scoped to the `packagingAffecting` subtree,
+deliberately: an unrecognised field there is a failure naming the field, while
+`documentation.*` and `nonPackagingAffecting.*` are ignored. That is not an
+omission — a non-packaging-affecting fact never requires a coordinated store
+bump, which is precisely what the upstream structural split exists to express,
+and an unscoped reading would fail the gate on every run against the shipped
+contract.
+
+**Why.** The compose file is only half a description of the application. The
+other half is Umbrel packaging contract: the injected `app_proxy` service, the
+`<app-id>_server_1` `APP_HOST` naming rule (entry 1), `${APP_DATA_DIR}`
+interpolation (entries 6 and 7), and the hardening entry 9 enforces. A generator
+fed by an application-side contract cannot know any of that, so generating would
+either drop it or require the contract to grow packaging knowledge that belongs
+here. It would also flatten this file's explanatory comments, which are load-
+bearing: they are the only place the `.gitkeep` mechanism, the digest-pinning
+rule and the env-file reasoning are stated at the point of use.
+
+Asserting keeps each fact owned where it is decided and still catches the drift.
+Before the gate, three values upstream owns were hardcoded here with nothing
+tying them to their source: an upstream rename of the health route, a container
+port change, or a move of the data directory would have kept shipping stale
+values and surfaced as a crash loop on the operator's box, with nothing in this
+repo's diff to explain it — the same failure shape `#8` produced once already.
+
+**Revisit if.** The Umbrel packaging surface this file carries moves somewhere
+else entirely (umbrelOS stops injecting `app_proxy`, or gains a first-class
+manifest field for the mount and the health probe), so that the compose file
+becomes a pure restatement of application facts with no packaging knowledge of
+its own. Generation is worth reconsidering at that point and not before.
+
+---
+
+## 13. Both networked gates read artefacts vendored at bump time, at the repo root
+
+**Statement.** The two facts the new gates check — the upstream Release body and
+the upstream deployment contract — are fetched ONCE, by `scripts/release.sh`, on
+the machine cutting the release, and committed to this repo under
+`upstream/vX.Y.Z/release-notes.txt` and `upstream/vX.Y.Z/contract.json`. Both
+push-time gates are then purely textual comparisons against those committed
+copies: no `gh`, no `docker`, no network call, at gate time, ever. This is ONE
+policy covering BOTH gates, not two independent answers to the same question.
+
+The vendored artefacts live at the REPO ROOT, deliberately not inside
+`pipfox-miner-fleet/`. That directory is the Umbrel app template umbreld rsyncs
+onto the operator's box; provenance artefacts have no business shipping there.
+
+The directory name encodes the version, and the drift gate requires EXACTLY ONE
+directory under `upstream/` whose name matches the manifest's own `version`.
+That is the staleness guard, and it is what makes "fetched at the pinned tag,
+never at main" mechanically checkable with no network at all:
+`scripts/release.sh` removes the previous version's directory when it writes the
+new one, so a bump that forgot to re-vendor, or a stale copy left beside a
+current one, fails the gates closed.
+
+**Why.** `scripts/check-version-drift.sh`'s header already states this repo's
+convention: a push-time gate stays purely textual so it never fails on an
+unavailable network. Both new gates needed a network read, so the convention had
+to be honoured or abandoned — once, for both, rather than twice with two
+different answers.
+
+Vendoring honours it without weakening fail-closed. The alternative — calling the
+network at gate time with a fail-closed network policy — is not available here,
+and that is a fact rather than a preference: the pinned CI image
+(`ghcr.io/richardwilliams/node-ci:v0.1.3`) carries bash, git, grep, sed, node and
+python3, and carries neither `gh` nor `docker` nor a guaranteed network. A gate
+built on a live fetch could only fail open in that container or block every run
+in it. Vendoring moves the one networked read to the one place where the network
+is genuinely available: the operator's machine, at bump time.
+
+**What this does and does not buy — stated plainly.** The live verification
+happens ONCE, in the driver, against the real Release and the real tagged tree.
+Thereafter the gates assert that the committed copies and the manifest agree.
+That is a WEAKER claim than a live re-fetch: it cannot detect an upstream Release
+body edited after the bump, and it trusts that the vendored bytes were fetched by
+the driver rather than hand-written. It is the deliberate price of a gate that
+can never fail on an unavailable network, and the staleness guard above is what
+keeps the weaker claim from decaying into no claim at all.
+
+**Revisit if.** The pinned CI image gains `gh` and a guaranteed network AND a
+live-fetch gate can be shown to fail closed on every network failure mode without
+false-blocking correct work — both conditions, because either alone reintroduces
+the failure this entry avoids. Or an upstream Release body is edited after a bump
+and the divergence causes a real operator-visible problem, which would be the
+receipt that the weaker claim above is not enough.
