@@ -329,4 +329,28 @@ write_emitted_manifest "$root" '0.3.0' "${scratch}/base-body.txt"
 rmdir "${root}/${VENDOR_REL_DIR}"
 run_case 'fail-closed: an absent vendored root fails' 1 "$root" 'vendored upstream directory not found'
 
+# ---------------------------------------------------------------------------
+# ONE DECLARATION OF THE VENDORED DIRECTORY NAME. The name is COMPARED against
+# what is on disk and also used to BUILD the path of the body read inside it, so
+# the staleness guard only holds while both sites read the same declaration.
+#
+# These two cases redeclare the name in the fixture's own copy of the context
+# library and require the gate to follow it end to end. A `v${version}` re-
+# inlined at the comparison would refuse the redeclared directory; one re-inlined
+# at the body path would look for the body under a directory that is not there.
+# The second case is what stops the first from passing by ignoring the name.
+# ---------------------------------------------------------------------------
+root="$(make_fixture redeclared_dir_name)"
+redeclare_vendor_dir_name "${root}/scripts/lib/repo-context.sh" 'rel-'
+write_emitted_manifest "$root" '0.3.0' "${scratch}/base-body.txt"
+write_vendored_body "$root" 'rel-0.3.0' "$BASE_BODY"
+run_case 'one declaration: the gate follows a redeclared vendored directory name' 0 "$root" 'OK'
+
+root="$(make_fixture redeclared_dir_name_old_spelling)"
+redeclare_vendor_dir_name "${root}/scripts/lib/repo-context.sh" 'rel-'
+write_emitted_manifest "$root" '0.3.0' "${scratch}/base-body.txt"
+write_vendored_body "$root" 'v0.3.0' "$BASE_BODY"
+run_case 'one declaration: a directory named the old way no longer satisfies the gate' \
+  1 "$root" 'but the manifest pins 0.3.0'
+
 report_summary

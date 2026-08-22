@@ -362,4 +362,23 @@ assert_case 'explicit paths: a mismatch still fails under --contract and --compo
 assert_case 'arguments: an unrecognised argument fails' 1 'unrecognised argument' \
   bash "${root}/scripts/check-deploy-contract.sh" --contrct /nowhere
 
+# ---------------------------------------------------------------------------
+# ONE DECLARATION OF THE VENDORED DIRECTORY NAME. This gate derives the contract
+# path from the version the manifest pins, and that derivation is declared once,
+# in the context library. These two cases redeclare it in the fixture's own copy
+# and require the gate to follow it. A `v${pinned}` re-inlined here would go on
+# reading the OLD name, and both cases say so: the first would find no contract
+# where the fixture put it, and the second would read one the redeclaration says
+# is not the pinned version's — the drift that lets a release be asserted
+# against artefacts nothing re-vendored.
+# ---------------------------------------------------------------------------
+root="$(make_fixture redeclared_dir_name "$BASE_CONTRACT" "$BASE_COMPOSE" "rel-${PINNED}")"
+redeclare_vendor_dir_name "${root}/scripts/lib/repo-context.sh" 'rel-'
+run_case 'one declaration: the gate reads the contract from a redeclared directory name' 0 "$root" 'OK'
+
+root="$(make_fixture redeclared_dir_name_old_spelling "$BASE_CONTRACT" "$BASE_COMPOSE" "v${PINNED}")"
+redeclare_vendor_dir_name "${root}/scripts/lib/repo-context.sh" 'rel-'
+run_case 'one declaration: a contract under the old directory name is not read' \
+  1 "$root" "${VENDOR_DIR}/rel-${PINNED}/contract.json"
+
 report_summary

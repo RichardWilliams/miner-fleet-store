@@ -113,7 +113,7 @@ if [[ -z "$contract" ]]; then
   pinned="$(python3 "$HELPER" get "$manifest" version 2>&1)" || fail "$pinned"
   [[ "$pinned" =~ ^${SEMVER_ERE}$ ]] \
     || fail "manifest version '${pinned}' is not a semver, so no vendored contract path can be derived from it"
-  contract="${repo_root}/${VENDOR_REL_DIR}/v${pinned}/${VENDOR_CONTRACT_NAME}"
+  contract="${repo_root}/$(vendor_rel_path "$pinned" "$VENDOR_CONTRACT_NAME")"
 fi
 [[ -f "$contract" ]] || fail "vendored deployment contract not found at ${contract} — scripts/release.sh fetches it at the pinned tag and writes it there"
 

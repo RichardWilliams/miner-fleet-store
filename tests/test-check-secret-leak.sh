@@ -113,11 +113,17 @@ readonly CLEAN_COMPOSE="services:
     restart: on-failure"
 
 # Build a miniature repo. $1 = fixture name. Returns the fixture root.
+#
+# The vendored artefacts sit where scripts/release.sh would have written them,
+# read from the same declaration the driver reads. This gate is the one that
+# never derives that path itself — it walks the vendored root recursively — so a
+# name spelled out here would be a name nothing could contradict, green against a
+# declaration production code had already moved off.
 make_fixture() {
   local name="$1"
   local root="${scratch}/${name}"
   mkdir -p "${root}/scripts/lib" "${root}/${APP_ID}" \
-    "${root}/${VENDOR_REL_DIR}/v${PINNED}"
+    "${root}/$(vendor_rel_path "$PINNED")"
   cp "$SCRIPT_UNDER_TEST" "${root}/scripts/check-secret-leak.sh"
   chmod +x "${root}/scripts/check-secret-leak.sh"
   cp "$COMMON_LIB" "${root}/scripts/lib/check-common.sh"
@@ -137,9 +143,9 @@ EOF
 
   printf '%s\n' "$CLEAN_COMPOSE" > "${root}/${APP_ID}/docker-compose.yml"
   printf '%s\n' "$CLEAN_BODY" \
-    > "${root}/${VENDOR_REL_DIR}/v${PINNED}/${VENDOR_NOTES_NAME}"
+    > "${root}/$(vendor_rel_path "$PINNED" "$VENDOR_NOTES_NAME")"
   printf '%s\n' "$CLEAN_CONTRACT" \
-    > "${root}/${VENDOR_REL_DIR}/v${PINNED}/${VENDOR_CONTRACT_NAME}"
+    > "${root}/$(vendor_rel_path "$PINNED" "$VENDOR_CONTRACT_NAME")"
 
   printf '%s' "$root"
 }
@@ -187,11 +193,11 @@ index=0
 for (( index = 0; index < ${#SECRET_VALUES[@]}; index++ )); do
   root="$(make_fixture "body_secret_${index}")"
   printf 'The fleet is live.\nleftover: %s\n' "${SECRET_VALUES[index]}" \
-    > "${root}/${VENDOR_REL_DIR}/v${PINNED}/${VENDOR_NOTES_NAME}"
+    > "${root}/$(vendor_rel_path "$PINNED" "$VENDOR_NOTES_NAME")"
   run_case "category: ${SECRET_NAMES[index]} in the vendored Release body fails" \
     1 "$root" "${SECRET_LABELS[index]}"
   run_case "category: the refusal for ${SECRET_NAMES[index]} names the file it was in" \
-    1 "$root" "${VENDOR_REL_DIR}/v${PINNED}/${VENDOR_NOTES_NAME}"
+    1 "$root" "$(vendor_rel_path "$PINNED" "$VENDOR_NOTES_NAME")"
   assert_case "privacy: the refusal for ${SECRET_NAMES[index]} never echoes the match" \
     0 'refusal named the category and not the credential' \
     bash "$NO_ECHO_CHECK" "$root" "${SECRET_VALUES[index]}"
@@ -205,7 +211,7 @@ done
 root="$(make_fixture contract_secret)"
 printf '{\n  "documentation": {\n    "purpose": "deploy with %s"\n  }\n}\n' \
   "${SECRET_VALUES[0]}" \
-  > "${root}/${VENDOR_REL_DIR}/v${PINNED}/${VENDOR_CONTRACT_NAME}"
+  > "${root}/$(vendor_rel_path "$PINNED" "$VENDOR_CONTRACT_NAME")"
 run_case 'file: a credential in the vendored contract prose fails' \
   1 "$root" 'an AWS access-key ID'
 assert_case 'file: the contract refusal never echoes the matched text' \
@@ -253,7 +259,7 @@ run_case 'fail-closed: an absent vendored root fails' \
   1 "$root" 'vendored upstream directory not found'
 
 root="$(make_fixture empty_vendor_root)"
-rm -rf "${root:?}/${VENDOR_REL_DIR}/v${PINNED}"
+rm -rf "${root:?}/$(vendor_rel_path "$PINNED")"
 run_case 'fail-closed: a vendored root with no files in it fails' \
   1 "$root" 'no vendored files'
 
@@ -261,9 +267,9 @@ run_case 'fail-closed: a vendored root with no files in it fails' \
 # than 1 here, and treating that as "no match" is exactly how a scanner reports
 # a file it never opened as clean.
 root="$(make_fixture unreadable_file)"
-chmod 000 "${root}/${VENDOR_REL_DIR}/v${PINNED}/${VENDOR_NOTES_NAME}"
+chmod 000 "${root}/$(vendor_rel_path "$PINNED" "$VENDOR_NOTES_NAME")"
 run_case 'fail-closed: a file the scan cannot read fails' 1 "$root" 'could not scan'
-chmod 644 "${root}/${VENDOR_REL_DIR}/v${PINNED}/${VENDOR_NOTES_NAME}"
+chmod 644 "${root}/$(vendor_rel_path "$PINNED" "$VENDOR_NOTES_NAME")"
 
 # ---------------------------------------------------------------------------
 # NO FALSE BLOCKS. Prose that merely resembles a credential prefix must pass:
@@ -276,7 +282,7 @@ The task-oriented dashboard now shows firmware. See the getting-started guide at
 https://example.invalid/docs/getting-started-with-miner-fleet-and-your-boards.
 
 Boards whose id begins AKIA are displayed unchanged; the sk- prefix in a model
-name is not special.' > "${root}/${VENDOR_REL_DIR}/v${PINNED}/${VENDOR_NOTES_NAME}"
+name is not special.' > "${root}/$(vendor_rel_path "$PINNED" "$VENDOR_NOTES_NAME")"
 run_case 'no-false-block: prose containing bare prefixes and a long URL passes' \
   0 "$root" 'OK'
 

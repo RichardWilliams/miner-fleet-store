@@ -258,7 +258,7 @@ for previous in "${vendor_root}"/*/; do
 done
 shopt -u nullglob
 
-vendor_dir="${vendor_root}/v${version}"
+vendor_dir="${repo_root}/$(vendor_rel_path "$version")"
 mkdir -p "$vendor_dir"
 cp "$staged_notes" "${vendor_dir}/${VENDOR_NOTES_NAME}"
 cp "$staged_contract" "${vendor_dir}/${VENDOR_CONTRACT_NAME}"
@@ -326,9 +326,9 @@ else
 
 The digest is the multi-arch INDEX digest read from the registry's top-level \`Digest:\` line, never a per-platform manifest digest (DECISIONS.md entry 4).
 
-\`releaseNotes\` is the ${UPSTREAM_REPO_SLUG} Release body for v${version}, fetched and vendored at \`${VENDOR_REL_DIR}/v${version}/${VENDOR_NOTES_NAME}\` — it is never authored here (DECISIONS.md entry 10).
+\`releaseNotes\` is the ${UPSTREAM_REPO_SLUG} Release body for v${version}, fetched and vendored at \`$(vendor_rel_path "$version" "$VENDOR_NOTES_NAME")\` — it is never authored here (DECISIONS.md entry 10).
 
-The deployment contract at tag v${version} was asserted against \`${COMPOSE_REL_PATH}\` before any file was written, and is vendored at \`${VENDOR_REL_DIR}/v${version}/${VENDOR_CONTRACT_NAME}\`.
+The deployment contract at tag v${version} was asserted against \`${COMPOSE_REL_PATH}\` before any file was written, and is vendored at \`$(vendor_rel_path "$version" "$VENDOR_CONTRACT_NAME")\`.
 
 Verified after the write by \`check-version-drift.sh\`, \`check-release-notes-drift.sh\` and \`check-deploy-contract.sh\`."
 fi

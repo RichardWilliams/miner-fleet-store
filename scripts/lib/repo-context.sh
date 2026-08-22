@@ -61,9 +61,54 @@ COMPOSE_REL_PATH="${APP_ID}/docker-compose.yml"
 # (DECISIONS.md entry 13).
 VENDOR_REL_DIR="upstream"
 
-# The two filenames inside `upstream/v<version>/`.
+# The two filenames inside the vendored artefact directory.
 VENDOR_CONTRACT_NAME="contract.json"
 VENDOR_NOTES_NAME="release-notes.txt"
+
+# vendor_dir_name <version> — the NAME of the vendored artefact directory for
+# <version>.
+#
+# This is the staleness guard itself, not a spelling convenience. Nothing
+# records which release the vendored artefacts were fetched at except the name
+# of the directory they sit in, so check-release-notes-drift.sh decides
+# staleness by comparing the ONE directory it finds against the name this
+# function returns for the version the manifest pins. A second spelling of the
+# name anywhere — at the writer, at a reader, or at the comparison — lets the
+# two sides disagree and the guard then passes against the wrong artefacts,
+# silently, which is exactly what the version-encoded name exists to make loud
+# (INVARIANTS.md § Encapsulation).
+#
+# NOT the upstream git tag, which happens to be spelled `v<version>` too. That
+# tag is miner-fleet's naming of its own releases, read over the network by the
+# driver; this is THIS repo's naming of a directory in its own tree. They
+# coincide today and are free to stop coinciding, so the driver's
+# `gh release view v${version}` and `?ref=v${version}` are deliberately NOT
+# routed through here, and tests/test-release.sh's fail-closed `gh` stub pins
+# that separation by refusing any other tag.
+vendor_dir_name() {
+  printf 'v%s' "$1"
+}
+
+# vendor_rel_path <version> [<name>...] — the repo-relative path of the
+# vendored artefact directory for <version>, or of a named file inside it.
+#
+# The consumers want three different things from this one join — an absolute
+# directory to write into, an absolute file path to read, and the repo-relative
+# label a diagnostic prints — and all three are this string, with the repo root
+# prefixed or not. Returning the repo-relative form is what lets a diagnostic
+# use it directly, and `${repo_root}/$(vendor_rel_path …)` is the same
+# convention `${repo_root}/${COMPOSE_REL_PATH}` already follows.
+vendor_rel_path() {
+  local version="$1"
+  shift
+  local path=""
+  path="${VENDOR_REL_DIR}/$(vendor_dir_name "$version")"
+  local component=""
+  for component in "$@"; do
+    path="${path}/${component}"
+  done
+  printf '%s' "$path"
+}
 
 # The block indent of the `releaseNotes:` folded scalar in the app manifest. The
 # emitter and the drift gate both read it from here, so the value the driver
@@ -87,10 +132,24 @@ NOTES_BLOCK_INDENT=2
 # from the path the copied library tells the script to read: the script looks in
 # the new place, finds nothing, and the suite goes red. That covers `APP_ID` and
 # the `upstream` directory name in the suites that still spell them out, the
-# four `umbrel-app.yml` / `docker-compose.yml` / `release-notes.txt` /
-# `contract.json` filenames, the image coordinate that `COMPOSE_IMAGE_ERE` is
-# built from, and the contract path the release-driver suite's fail-closed `gh`
-# stub refuses any other value for.
+# `v<version>` fixture directory names those suites build the vendored artefacts
+# under, the four `umbrel-app.yml` / `docker-compose.yml` /
+# `release-notes.txt` / `contract.json` filenames, the image coordinate that
+# `COMPOSE_IMAGE_ERE` is built from, and the contract path the release-driver
+# suite's fail-closed `gh` stub refuses any other value for.
+#
+# The `v<version>` names carry a second obligation the others do not, because
+# `vendor_dir_name` above is compared against a directory found on disk as well
+# as used to build paths: a re-inlined join at ONE of those sites would leave
+# every fixture that spells the name the way this file currently does still
+# green. So the three suites that exercise the derivation each carry a case
+# that REDECLARES `vendor_dir_name` in the fixture's own copy of this file and
+# requires the script to follow it end to end. A second spelling at any site
+# stops following, and that case goes red. The one name that needs no agreement
+# is the release suite's PREVIOUS-version directory: the driver removes every
+# directory it finds under the vendored root whatever it is called, so that
+# fixture name stands for "some leftover directory" rather than for this
+# coordinate.
 #
 # `NOTES_BLOCK_INDENT` is the one that is NOT that case, which is why this block
 # exists. A manifest emitted at a stale indent is still valid YAML, so a retyped

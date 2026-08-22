@@ -89,16 +89,16 @@ done
 shopt -u nullglob
 
 if (( ${#vendored_dirs[@]} == 0 )); then
-  fail "no vendored upstream directory under ${VENDOR_REL_DIR}/ — expected ${VENDOR_REL_DIR}/v${version}/, written by scripts/release.sh"
+  fail "no vendored upstream directory under ${VENDOR_REL_DIR}/ — expected $(vendor_rel_path "$version")/, written by scripts/release.sh"
 fi
 if (( ${#vendored_dirs[@]} > 1 )); then
   fail "${#vendored_dirs[@]} directories under ${VENDOR_REL_DIR}/ (${vendored_dirs[*]}) — expected exactly one; a stale copy beside a current one could satisfy this gate against the wrong release"
 fi
-if [[ "${vendored_dirs[0]}" != "v${version}" ]]; then
+if [[ "${vendored_dirs[0]}" != "$(vendor_dir_name "$version")" ]]; then
   fail "vendored directory is ${VENDOR_REL_DIR}/${vendored_dirs[0]}/ but the manifest pins ${version} — re-run scripts/release.sh ${version} so the vendored artefacts match the pin"
 fi
 
-notes="${vendor_root}/v${version}/${VENDOR_NOTES_NAME}"
+notes="${repo_root}/$(vendor_rel_path "$version" "$VENDOR_NOTES_NAME")"
 [[ -f "$notes" ]] || fail "vendored release body not found at ${notes}"
 [[ -s "$notes" ]] || fail "vendored release body at ${notes} is empty — an empty upstream Release body is a hard failure, not an empty listing"
 
@@ -113,7 +113,7 @@ if [[ "$declared" != "$expected" ]]; then
   fail "release-notes drift: ${MANIFEST_REL_PATH} declares releaseNotes as:
 ${declared}
 
-but the upstream Release body vendored at ${VENDOR_REL_DIR}/v${version}/${VENDOR_NOTES_NAME} round-trips to:
+but the upstream Release body vendored at $(vendor_rel_path "$version" "$VENDOR_NOTES_NAME") round-trips to:
 ${expected}
 
 The listing is a copy of the Release, never a second original — re-run scripts/release.sh ${version} rather than editing the manifest by hand."

@@ -155,18 +155,25 @@ pass before the push.
 
    The upstream coordinates come from `scripts/lib/repo-context.sh`, which is
    where this repo declares them once — read them from there rather than typing
-   them a second time:
+   them a second time. So does the vendored path: `vendor_rel_path` derives the
+   version-encoded directory name that IS the staleness guard, and a
+   hand-typed one is the single value here that could satisfy this step to the
+   letter and still fail step 5. Set `version` once and let the rest follow:
 
    ```bash
    source scripts/lib/repo-context.sh
-   rm -rf upstream/v*
-   mkdir -p upstream/vX.Y.Z
-   gh release view vX.Y.Z --repo "$UPSTREAM_REPO_SLUG" --json body -q .body \
-     > upstream/vX.Y.Z/release-notes.txt
+   version=X.Y.Z
+   rm -rf "${VENDOR_REL_DIR:?}"/*/
+   mkdir -p "$(vendor_rel_path "$version")"
+   gh release view "v${version}" --repo "$UPSTREAM_REPO_SLUG" --json body -q .body \
+     > "$(vendor_rel_path "$version" "$VENDOR_NOTES_NAME")"
    gh api -H "Accept: application/vnd.github.raw" \
-     "repos/${UPSTREAM_REPO_SLUG}/contents/${UPSTREAM_CONTRACT_PATH}?ref=vX.Y.Z" \
-     > upstream/vX.Y.Z/contract.json
+     "repos/${UPSTREAM_REPO_SLUG}/contents/${UPSTREAM_CONTRACT_PATH}?ref=v${version}" \
+     > "$(vendor_rel_path "$version" "$VENDOR_CONTRACT_NAME")"
    ```
+
+   The `v${version}` in the two `gh` invocations is miner-fleet's own tag, not
+   this repo's directory name, which is why it stays spelled out here.
 
 4. **Write `releaseNotes` from the vendored body**, rather than retyping it.
    The listing is a copy of the Release, never a second original, and a
@@ -179,7 +186,7 @@ pass before the push.
    ```bash
    python3 scripts/lib/manifest_data.py set-block \
      pipfox-miner-fleet/umbrel-app.yml releaseNotes \
-     upstream/vX.Y.Z/release-notes.txt "$NOTES_BLOCK_INDENT"
+     "$(vendor_rel_path "$version" "$VENDOR_NOTES_NAME")" "$NOTES_BLOCK_INDENT"
    ```
 
 5. **Run the gates locally** before pushing:

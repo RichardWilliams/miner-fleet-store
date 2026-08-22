@@ -620,4 +620,29 @@ printf 'Name: %s:%s\n\nManifests:\n  Digest:    %s\n' \
 run_release 'digest: inspect output with no top-level Digest line fails closed' 1 'found 0' \
   "$root" "$TARGET_VERSION"
 
+# ---------------------------------------------------------------------------
+# ONE DECLARATION OF THE VENDORED DIRECTORY NAME. The driver WRITES the vendored
+# directory and the gates it re-runs in step 9 READ it, so a name spelled twice
+# would let the writer and the readers disagree. This case redeclares the name in
+# the fixture's own copy of the context library: the driver must write under the
+# redeclared name, and its own post-write verification must then find it there,
+# or the run fails.
+#
+# It also pins the boundary the other way. The upstream git tag is spelled
+# `v${version}` too but is miner-fleet's, not this repo's, so the driver does NOT
+# route its `gh` reads through the vendored-name derivation — and the fail-closed
+# `gh` stub refuses any tag other than v0.3.0, so a driver that did would fail
+# this case rather than pass it quietly.
+# ---------------------------------------------------------------------------
+root="$(make_fixture redeclared_dir_name)"
+redeclare_vendor_dir_name "${root}/scripts/lib/repo-context.sh" 'rel-'
+run_release 'one declaration: the driver vendors under a redeclared directory name' \
+  0 'done' "$root" "$TARGET_VERSION"
+
+assert_case 'one declaration: both artefacts land under the redeclared name' 0 '' \
+  test -f "${root}/${VENDOR_REL_DIR}/rel-${TARGET_VERSION}/${VENDOR_CONTRACT_NAME}"
+
+assert_case 'one declaration: nothing is left under the old spelling' 1 '' \
+  test -e "${root}/${VENDOR_REL_DIR}/v${TARGET_VERSION}"
+
 report_summary
