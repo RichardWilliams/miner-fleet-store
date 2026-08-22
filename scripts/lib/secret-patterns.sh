@@ -17,7 +17,7 @@
 # text would disclose the credential a second time — into the operator's
 # terminal, their shell history, and the CI log of every run that reproduced it.
 # Callers therefore receive a category label: `grep -q` prints no match, and the
-# nameref carries back a label from the table below. Both consumers have a
+# scan assigns back a label from the table below. Both consumers have a
 # no-echo test.
 #
 # WHAT IS DELIBERATELY NOT HERE: private-range and loopback IP literals. They
@@ -92,17 +92,22 @@ fi
 # variable empty. Return 1 when it carries one, with the named variable set to
 # that category's label — never to the matched text.
 #
-# The result comes back through a nameref rather than on stdout, which is the
-# same shape `check-deploy-contract.sh`'s `read_lines` uses, and here it is
-# load-bearing rather than stylistic: a caller capturing stdout would run this
-# function in a subshell, and the hard failures below would then kill only that
-# subshell and read to the caller as a clean file. Through a nameref the
-# function runs in the caller's own shell, so a scan that cannot read its input
-# stops the caller instead of passing.
+# The result comes back by assigning to the named variable rather than on
+# stdout, which is the same shape `check-deploy-contract.sh`'s `read_lines`
+# uses, and here it is load-bearing rather than stylistic: a caller capturing
+# stdout would run this function in a subshell, and the hard failures below
+# would then kill only that subshell and read to the caller as a clean file.
+# Assigning to the name leaves the function running in the caller's own shell,
+# so a scan that cannot read its input stops the caller instead of passing.
+#
+# `printf -v` rather than a `local -n` nameref: a nameref that happens to be
+# spelled the same as one of this function's own locals binds to the local
+# instead of the caller's variable, and `printf -v` writes through the name
+# with no second binding to collide.
 secret_scan_file() {
-  local -n found_category="$1"
+  local category_name="$1"
   local file="$2"
-  found_category=""
+  printf -v "$category_name" '%s' ""
 
   local index=0 status=0
   for (( index = 0; index < ${#SECRET_CATEGORY_PATTERNS[@]}; index++ )); do
@@ -118,7 +123,7 @@ secret_scan_file() {
     LC_ALL=C grep -qE -e "${SECRET_CATEGORY_PATTERNS[index]}" "$file" || status=$?
 
     if (( status == 0 )); then
-      found_category="${SECRET_CATEGORY_LABELS[index]}"
+      printf -v "$category_name" '%s' "${SECRET_CATEGORY_LABELS[index]}"
       return 1
     fi
     # grep says 1 for "no match" and 2 for "could not read it". Treating the
@@ -137,4 +142,8 @@ secret_scan_file() {
 # The half of the refusal that is the same wherever the credential was found.
 # Each caller adds the sentence naming ITS OWN source and remedy; this states
 # the part neither of them owns.
-SECRET_LEAK_RATIONALE="This repo is public and its git history is permanent, so a credential committed here is disclosed the moment the branch is pushed and stays disclosed after any later deletion. The matched text is deliberately not printed: echoing it into a terminal, a shell history or a CI log would disclose it again. Treat the credential as compromised, rotate it, and remove it at its source."
+#
+# `export`ed for the reason `scripts/lib/repo-context.sh`'s header gives in
+# full: the name is read by the scripts that SOURCE this file and by nothing in
+# this file, and the export declares that wider scope.
+export SECRET_LEAK_RATIONALE="This repo is public and its git history is permanent, so a credential committed here is disclosed the moment the branch is pushed and stays disclosed after any later deletion. The matched text is deliberately not printed: echoing it into a terminal, a shell history or a CI log would disclose it again. Treat the credential as compromised, rotate it, and remove it at its source."

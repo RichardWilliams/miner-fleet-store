@@ -39,46 +39,55 @@
 # Assignments are plain rather than `readonly` so a consumer that sources this
 # file more than once in a single shell (a test suite driving several fixtures,
 # for example) does not abort on a re-assignment to a read-only name.
+#
+# Every constant below is `export`ed except one, and the rule is who reads it:
+# each exported name is consumed by the scripts that SOURCE this file, and
+# `export` declares that its scope is wider than the file assigning it. A
+# sourcing consumer would read the value without it — the export is the
+# declaration, not the delivery. The exception is `UPSTREAM_IMAGE_ERE`, read
+# only by this file, and it is named at its own declaration too so the
+# inconsistency is not later "corrected" into one. Nothing this repo runs reads
+# any of these names out of the environment.
 
 # --- GitHub coordinates ------------------------------------------------------
 
 # This repo. Consumed when opening or looking up the release PR.
-STORE_REPO_SLUG="RichardWilliams/miner-fleet-store"
+export STORE_REPO_SLUG="RichardWilliams/miner-fleet-store"
 
 # The repo that owns the application, its published image, its GitHub Releases
 # and its deployment contract. This store asserts against those artefacts; it
 # never writes to that repo.
-UPSTREAM_REPO_SLUG="RichardWilliams/miner-fleet"
+export UPSTREAM_REPO_SLUG="RichardWilliams/miner-fleet"
 
 # The path, inside the upstream repo, of the generated deployment contract the
 # release driver fetches at the pinned tag.
-UPSTREAM_CONTRACT_PATH="deploy/contract.json"
+export UPSTREAM_CONTRACT_PATH="deploy/contract.json"
 
 # --- Registry coordinate -----------------------------------------------------
 
 # The published image, without a tag or digest. The release driver asks the
 # registry itself for the index digest of `${UPSTREAM_IMAGE}:X.Y.Z`; nothing is
 # hand-carried between the two repos.
-UPSTREAM_IMAGE="ghcr.io/richardwilliams/miner-fleet"
+export UPSTREAM_IMAGE="ghcr.io/richardwilliams/miner-fleet"
 
 # --- In-repo paths -----------------------------------------------------------
 
 # The Umbrel app id, which is also the app directory name (DECISIONS.md entry 1).
-APP_ID="pipfox-miner-fleet"
+export APP_ID="pipfox-miner-fleet"
 
 # Repo-relative paths of the two files a release bump rewrites.
-MANIFEST_REL_PATH="${APP_ID}/umbrel-app.yml"
-COMPOSE_REL_PATH="${APP_ID}/docker-compose.yml"
+export MANIFEST_REL_PATH="${APP_ID}/umbrel-app.yml"
+export COMPOSE_REL_PATH="${APP_ID}/docker-compose.yml"
 
 # Repo-relative root of the vendored upstream artefacts. Deliberately OUTSIDE
 # the app directory: `${APP_ID}/` is the template umbreld rsyncs onto the
 # operator's box, and provenance artefacts have no business shipping there
 # (DECISIONS.md entry 13).
-VENDOR_REL_DIR="upstream"
+export VENDOR_REL_DIR="upstream"
 
 # The two filenames inside the vendored artefact directory.
-VENDOR_CONTRACT_NAME="contract.json"
-VENDOR_NOTES_NAME="release-notes.txt"
+export VENDOR_CONTRACT_NAME="contract.json"
+export VENDOR_NOTES_NAME="release-notes.txt"
 
 # vendor_dir_name <version> — the NAME of the vendored artefact directory for
 # <version>.
@@ -128,7 +137,7 @@ vendor_rel_path() {
 # The block indent of the `releaseNotes:` folded scalar in the app manifest. The
 # emitter and the drift gate both read it from here, so the value the driver
 # writes and the value the gate re-emits can never disagree.
-NOTES_BLOCK_INDENT=2
+export NOTES_BLOCK_INDENT=2
 
 # --- retyping a value in a test ------------------------------------------------
 #
@@ -161,7 +170,7 @@ NOTES_BLOCK_INDENT=2
 # argument with it, check-version-drift matches the manifest `version:` line and
 # the compose image tag, and the two contract gates shape-check the version they
 # read before deriving a vendored directory name from it.
-SEMVER_ERE='[0-9]+\.[0-9]+\.[0-9]+'
+export SEMVER_ERE='[0-9]+\.[0-9]+\.[0-9]+'
 
 # ere_escape <value> — print <value> with every POSIX ERE metacharacter
 # backslash-escaped, so the result is a pattern that matches that value
@@ -191,13 +200,15 @@ ere_escape() {
   printf '%s' "$escaped"
 }
 
-# The published image name as a POSIX ERE matching that name literally.
+# The published image name as a POSIX ERE matching that name literally. The one
+# constant here NOT exported: `COMPOSE_IMAGE_ERE` below is its only reader, so
+# its scope really is this file (see the header).
 UPSTREAM_IMAGE_ERE="$(ere_escape "$UPSTREAM_IMAGE")"
 
 # The shape of an image digest reference — sha256 and its 64 lowercase hex
 # characters. The release driver reads one out of the registry's top-level
 # `Digest:` line; the pinned `image:` pattern below requires one.
-DIGEST_ERE='sha256:[0-9a-f]{64}'
+export DIGEST_ERE='sha256:[0-9a-f]{64}'
 
 # What may legitimately follow a value on the YAML lines this repo parses:
 # optional whitespace, an optional `# comment`, then end of line. A trailing
@@ -205,7 +216,7 @@ DIGEST_ERE='sha256:[0-9a-f]{64}'
 # style puts prose about digests beside the pin, and DEPLOY.md's roll-back
 # guidance invites recording the previous tag there — so a pattern that refused
 # one would block a correct release edit.
-TRAILING_ERE='[[:space:]]*(#.*)?$'
+export TRAILING_ERE='[[:space:]]*(#.*)?$'
 
 # The pinned `image:` line of the compose file, as a whole-line POSIX ERE.
 #
@@ -224,4 +235,4 @@ TRAILING_ERE='[[:space:]]*(#.*)?$'
 #
 # TRAILING_ERE carries a `(#…)` group of its own, so \3 has a nested \4. No
 # consumer needs it; it is named here only so the numbering above is unambiguous.
-COMPOSE_IMAGE_ERE="^([[:space:]]+image:[[:space:]]+${UPSTREAM_IMAGE_ERE}):(${SEMVER_ERE})@${DIGEST_ERE}(${TRAILING_ERE})"
+export COMPOSE_IMAGE_ERE="^([[:space:]]+image:[[:space:]]+${UPSTREAM_IMAGE_ERE}):(${SEMVER_ERE})@${DIGEST_ERE}(${TRAILING_ERE})"

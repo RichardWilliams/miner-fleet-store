@@ -139,15 +139,23 @@ read_compose() {
 # operation that prints one item per line and load the result into the named
 # array, leaving it EMPTY rather than holding one empty string when the helper
 # printed nothing.
+#
+# `mapfile` writes through the name rather than through a `local -n` nameref:
+# a nameref spelled the same as one of this function's own locals binds to the
+# local instead of the caller's array. `mapfile` replaces the whole array, so
+# the empty case reads from /dev/null rather than needing a separate reset —
+# a here-string of an empty value would yield one empty element, which is the
+# shape this function exists to avoid.
 read_lines() {
-  local -n target="$1"
-  local operation="$2" file="$3"
+  local target_name="$1" operation="$2" file="$3"
   shift 3
   local out=""
   out="$(python3 "$HELPER" "$operation" "$file" "$@" 2>&1)" || fail "$out"
-  target=()
-  [[ -n "$out" ]] || return 0
-  mapfile -t target <<< "$out"
+  if [[ -n "$out" ]]; then
+    mapfile -t "$target_name" <<< "$out"
+  else
+    mapfile -t "$target_name" < /dev/null
+  fi
 }
 
 # --- 1. no unrecognised packaging-affecting field ----------------------------
