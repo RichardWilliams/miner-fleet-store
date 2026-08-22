@@ -242,6 +242,36 @@ run_case 'file: a credential in a stray file under the vendored root fails' \
   1 "$root" 'a PEM private-key header'
 
 # ---------------------------------------------------------------------------
+# DOT-PREFIXED ENTRIES. Bash's `**` matches no path component beginning with a
+# dot unless `dotglob` is set, so before it was set the gate walked straight
+# past a hidden file and reported the same count as a clean tree — not scanned,
+# not counted, not acknowledged. The two-artefact backstop below does not cover
+# it: a dotfile sitting beside the two files the driver always writes leaves
+# that backstop satisfied. These three cases pin each half of the gap — the
+# hidden file, the hidden directory, and the count that has to move.
+# ---------------------------------------------------------------------------
+root="$(make_fixture dotfile_secret)"
+printf 'old notes: %s\n' "${SECRET_VALUES[0]}" \
+  > "${root}/$(vendor_rel_path "$PINNED" ".leftover-notes.txt")"
+run_case 'dotfile: a credential in a hidden file beside the artefacts fails' \
+  1 "$root" 'an AWS access-key ID'
+run_case 'dotfile: the refusal names the hidden file it was in' \
+  1 "$root" "$(vendor_rel_path "$PINNED" ".leftover-notes.txt")"
+
+root="$(make_fixture dotdir_secret)"
+mkdir -p "${root}/${VENDOR_REL_DIR}/.stale"
+printf 'old notes: %s\n' "${SECRET_VALUES[3]}" \
+  > "${root}/${VENDOR_REL_DIR}/.stale/notes.txt"
+run_case 'dotfile: a credential inside a hidden directory fails' \
+  1 "$root" 'a PEM private-key header'
+
+root="$(make_fixture dotfile_clean)"
+printf 'nothing secret here\n' \
+  > "${root}/$(vendor_rel_path "$PINNED" ".leftover-notes.txt")"
+run_case 'dotfile: a clean hidden file is counted, not silently passed over' \
+  0 "$root" '5 files'
+
+# ---------------------------------------------------------------------------
 # FAIL-CLOSED. A scan that quietly covered nothing would be worse than no scan,
 # because it would look like coverage.
 # ---------------------------------------------------------------------------
@@ -270,6 +300,33 @@ root="$(make_fixture unreadable_file)"
 chmod 000 "${root}/$(vendor_rel_path "$PINNED" "$VENDOR_NOTES_NAME")"
 run_case 'fail-closed: a file the scan cannot read fails' 1 "$root" 'could not scan'
 chmod 644 "${root}/$(vendor_rel_path "$PINNED" "$VENDOR_NOTES_NAME")"
+
+# A directory the glob cannot list is the same defect as the dotfile gap above,
+# one level up: it yields nothing and reports nothing, so every file inside it
+# would be skipped with no trace in the count.
+root="$(make_fixture unreadable_dir)"
+mkdir -p "${root}/${VENDOR_REL_DIR}/nested"
+printf 'old notes: %s\n' "${SECRET_VALUES[0]}" \
+  > "${root}/${VENDOR_REL_DIR}/nested/notes.txt"
+chmod 000 "${root}/${VENDOR_REL_DIR}/nested"
+run_case 'fail-closed: a directory the walk cannot list fails' \
+  1 "$root" 'cannot list'
+chmod 755 "${root}/${VENDOR_REL_DIR}/nested"
+
+# A symlink is refused rather than followed: what git publishes for one is its
+# target PATH, which is not the bytes a scan of the target would have read.
+root="$(make_fixture vendored_symlink)"
+ln -s "$VENDOR_NOTES_NAME" \
+  "${root}/$(vendor_rel_path "$PINNED" "notes-link.txt")"
+run_case 'fail-closed: a symlink under the vendored root fails' \
+  1 "$root" 'is a symlink'
+
+# And an entry that is neither a regular file nor a directory. `grep` over one
+# does not answer the question this gate asks.
+root="$(make_fixture vendored_fifo)"
+mkfifo "${root}/$(vendor_rel_path "$PINNED" "a-fifo")"
+run_case 'fail-closed: a vendored entry that is not a regular file fails' \
+  1 "$root" 'neither a regular file nor a directory'
 
 # ---------------------------------------------------------------------------
 # NO FALSE BLOCKS. Prose that merely resembles a credential prefix must pass:

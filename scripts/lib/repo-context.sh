@@ -151,12 +151,27 @@ NOTES_BLOCK_INDENT=2
 # fixture name stands for "some leftover directory" rather than for this
 # coordinate.
 #
-# `NOTES_BLOCK_INDENT` is the one that is NOT that case, which is why this block
-# exists. A manifest emitted at a stale indent is still valid YAML, so a retyped
-# indent leaves the suite green while exercising an indent production code has
-# moved off — it fails OPEN. Every consumer of it reads it from here: both test
-# suites that emit a `releaseNotes` block, and DEPLOY.md § 3.1's hand-edit step,
-# which sources this file two steps earlier.
+# `NOTES_BLOCK_INDENT` is the one the condition above does not decide either
+# way, and saying why is the point of naming it here — a reader who assumed the
+# rule reached it would be assuming a guard that does not exist. A retyped
+# indent would leave the suite green, but so would a divergent one in
+# production, because nothing in this repo can tell the two apart: `emit_block()`
+# pads every body line uniformly, a folded scalar's block indent is taken from
+# its own content and is not part of the value a parser returns, and every
+# consumer here compares PARSED values — through `round_trip()` or a `get` —
+# never raw bytes. `round_trip(body, 2)` and `round_trip(body, 4)` therefore
+# return the same string by construction. That indent-stripping is a property of
+# the YAML block-scalar form itself rather than of the parser this repo happens
+# to use, so a reader of the shipped manifest sees the same value too.
+#
+# So routing every site through this one declaration is a single-source-of-truth
+# measure and nothing more: one value, read by the driver, by the drift gate, by
+# both test suites that emit a `releaseNotes` block, and by DEPLOY.md § 3.1's
+# hand-edit step, which sources this file two steps earlier — so no site has to
+# be kept in agreement with any other by hand. It is NOT a tested regression
+# guard, and it is not written up as one: a test asserting the on-disk padding
+# would pin a property that has no consequence anywhere, which is a test written
+# for the sake of having one.
 
 # --- Shared patterns ---------------------------------------------------------
 

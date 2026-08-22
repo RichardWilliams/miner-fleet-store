@@ -34,9 +34,12 @@ done
 
 # The app id, the vendored-artefact directory and the releaseNotes block indent
 # come from the one place that declares them, exactly as tests/test-release.sh
-# already does. The indent in particular MUST be read rather than retyped: a
-# fixture emitted at a stale indent would still be valid YAML, so a literal here
-# would fail OPEN, silently exercising an indent production code had moved off.
+# already does. The indent is read rather than retyped for single-source-of-truth
+# reasons only, and NOT as a guard against a stale value: a folded scalar's block
+# indent is taken from its own content and stripped on parse, so every assertion
+# below yields the same string at any indent >= 1 and a retyped literal here
+# would mask nothing. scripts/lib/repo-context.sh states that in full beside the
+# declaration.
 source "$CONTEXT_LIB"
 
 # The scratch dir, its single cleanup trap, the counters, assert_case and the

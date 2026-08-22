@@ -386,10 +386,13 @@ gates above compare against artefacts vendored under `upstream/vX.Y.Z/` rather
 than calling the network, so neither can fail on an unavailable network — and a
 stale or missing vendored copy fails them closed.
 
-**Nothing shaped like a credential is published from this repo** (entry 15). The
-text in `releaseNotes` and the prose in the vendored contract are written by a
-human in a PRIVATE repo and copied into this PUBLIC one, where the history is
-permanent. `scripts/release.sh` refuses either fetched artefact before writing,
+**Four vendor-prefixed credential shapes are refused before anything is published
+from this repo** (entry 15) — an AWS access-key ID, a GitHub token, a PEM
+private-key header and an `sk-` style API key. They catch the likeliest
+accidental paste, not every secret that could exist, so read them as four named
+shapes rather than as a guarantee. The text in `releaseNotes` and the prose in
+the vendored contract are written by a human in a PRIVATE repo and copied into
+this PUBLIC one, where the history is permanent. `scripts/release.sh` refuses either fetched artefact before writing,
 and `scripts/check-secret-leak.sh` refuses the same shapes at push time over the
 files a release bump writes — the driver covers the automated path, the gate
 covers the § 3.1 hand path. Neither prints the matched text. Private-range and

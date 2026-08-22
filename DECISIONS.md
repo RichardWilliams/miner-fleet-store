@@ -595,12 +595,14 @@ scoped, and left unbuilt for a stated reason rather than missed.
 
 ## 15. The credential-leak control lives in BOTH the release driver and the push-time gates, and refuses shapes rather than addresses
 
-**Statement.** Nothing shaped like a credential is published from this repo. Four
-shapes are refused: AWS access-key IDs, GitHub tokens (`ghp_`, `gho_`, `ghu_`,
-`ghs_`, `ghr_` and the fine-grained `github_pat_` prefix), PEM private-key
-headers, and `sk-` style API keys. They are declared ONCE, in
-`scripts/lib/secret-patterns.sh`, together with the one function that looks for
-them.
+**Statement.** Four vendor-prefixed credential shapes are refused before anything
+is published from this repo: AWS access-key IDs, GitHub tokens (`ghp_`, `gho_`,
+`ghu_`, `ghs_`, `ghr_` and the fine-grained `github_pat_` prefix), PEM
+private-key headers, and `sk-` style API keys. Those four were chosen because
+they catch the likeliest accidental paste into operator-facing text; a secret
+carrying none of their prefixes is not covered, and this entry claims no more
+than the four. They are declared ONCE, in `scripts/lib/secret-patterns.sh`,
+together with the one function that looks for them.
 
 Two consumers share that one declaration:
 
