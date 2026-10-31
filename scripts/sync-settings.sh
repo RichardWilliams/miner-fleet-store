@@ -84,25 +84,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if $SHOW_HELP; then
-  cat <<'HELP'
-sync-settings.sh — Regenerate .claude/settings.json from canonical inputs.
-
-Usage:
-  scripts/sync-settings.sh --repo <path>           # generate
-  scripts/sync-settings.sh --repo <path> --verify  # check on-disk == regenerated
-
-Inputs read from:
-  <repo>/.claude/canonical/hook-registrations.json
-  <repo>/.claude/settings.local-additions.json
-
-Output written to:
-  <repo>/.claude/settings.json
-
-Exit codes:
-  0  generated or verified-clean
-  1  error or verify-mismatch
-  2  skipped (canonical inputs absent — repo not onboarded)
-HELP
+  sed -n '2,/^[^#]/{ /^#/s/^# \{0,1\}//p; }' "$0"
   exit 0
 fi
 

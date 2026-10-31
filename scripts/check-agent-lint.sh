@@ -63,37 +63,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$SHOW_HELP" == true ]]; then
-  cat <<'HELPEOF'
-check-agent-lint.sh — lint agent files for common anti-patterns.
-
-Scans .claude/agents/*.md files for:
-  1. Hardcoded package manager commands — agents must use package-manager-
-     agnostic language rather than hardcoding npm, yarn, pnpm, or bun.
-  2. Meta-syntax in output templates — angle-bracket placeholders such as
-     <name> or <placeholder> in prose or prompt templates. Known HTML tags
-     and frontmatter delimiters are excluded.
-
-Both rules skip lines inside fenced code blocks — example output is
-display, not directive, so pinned package managers inside ```...``` blocks
-do not produce findings.
-
-Usage:
-  scripts/check-agent-lint.sh [--repo-root <path>] [--files <file>...]
-
-Arguments:
-  --repo-root <path>  Repository root (default: the repo this script sits in)
-  --files <file>...   Specific files to check (default: every regular file
-                      .claude/agents/*.md; a symlinked agent is a canonical
-                      one, linted in the codespace)
-
-Environment variable overrides:
-  CHECK_AGENT_REPO_ROOT — repository root override
-
-Exit codes:
-  0 — no anti-patterns found
-  1 — one or more anti-patterns detected, or an error named on stderr
-      (a usage error, or an agent-file listing that failed)
-HELPEOF
+  sed -n '2,/^[^#]/{ /^#/s/^# \{0,1\}//p; }' "$0"
   exit 0
 fi
 
