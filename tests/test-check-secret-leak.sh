@@ -43,6 +43,7 @@ done
 
 # The app id and the vendored-artefact paths come from the one place that
 # declares them, the same way tests/test-release.sh does.
+# shellcheck source=SCRIPTDIR/../scripts/lib/repo-context.sh
 source "$CONTEXT_LIB"
 
 harness="${script_dir}/lib/bash-test-harness.sh"
@@ -50,6 +51,7 @@ harness="${script_dir}/lib/bash-test-harness.sh"
   printf 'FATAL: shared test harness not found at %s\n' "$harness" >&2
   exit 1
 }
+# shellcheck source=SCRIPTDIR/lib/bash-test-harness.sh
 source "$harness"
 
 # ---------------------------------------------------------------------------

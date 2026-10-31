@@ -366,8 +366,10 @@ above safe to adopt.
 **Statement.** `scripts/check-compose-hardening.sh` asserts, on the `server`
 service alone, that `cap_drop:` contains `ALL`, that `security_opt:` contains
 `no-new-privileges:true`, that no `network_mode: host` is declared, and that no
-host `ports:` are published. It runs in `.local-ci.yml`, so the push gate and CI
-execute it identically. It fails closed on anything it cannot parse.
+host `ports:` are published. It is a `.local-ci.yml` step, so CI runs it, and
+the push gate requires a pass marker that only the codespace producer writes,
+after it builds and runs this SAME image with the SAME steps over a clean clone
+of HEAD (cs#1823). It fails closed on anything it cannot parse.
 
 **Why.** Entries 2 and 6 already record this hardening as a decision, but a
 decision recorded in prose is only checked when someone reads the file. The PR
@@ -532,8 +534,8 @@ different answers.
 
 Vendoring honours it without weakening fail-closed. The alternative — calling the
 network at gate time with a fail-closed network policy — is not available here,
-and that is a fact rather than a preference: the pinned CI image
-(`ghcr.io/richardwilliams/node-ci:v0.1.3`) carries bash, git, grep, sed, node and
+and that is a fact rather than a preference: the pinned CI image (the node-ci
+base on `docker/Dockerfile.ci`'s `FROM` line) carries bash, git, grep, sed, node and
 python3, and carries neither `gh` nor `docker` nor a guaranteed network. A gate
 built on a live fetch could only fail open in that container or block every run
 in it. Vendoring moves the one networked read to the one place where the network
@@ -688,7 +690,7 @@ when a command is INVOKED, and they evaluate HEAD as it stands at that moment. O
 a release-driver invocation they therefore evaluate the commit that was HEAD
 BEFORE the bump — and the driver then creates a NEW commit and pushes that one.
 No local-CI marker covers it, no in-container run has seen it, and of the
-thirteen steps in `.local-ci.yml` only the gates in `RELEASE_GATES` have run
+steps in `.local-ci.yml` only the gates in `RELEASE_GATES` have run
 against it, none of them a test suite. Handing the push back puts the commit
 through the ordinary gated path, where every gate evaluates the commit that is
 actually being pushed. `INVARIANTS.md` § Local CI Equivalence — every command any
@@ -706,9 +708,10 @@ file — the index against HEAD decides whether a second commit is needed, and
 GitHub's own open-PR list decides whether the hand-off prints the create command
 or names the PR that is already open.
 
-**The rejected alternative.** Have the driver run the thirteen-step in-container
-validation itself, then push. It is refused twice over, either half sufficient.
-It would copy the push gate's `docker build` plus `docker run` recipe into a repo
+**The rejected alternative.** Have the driver run the full `.local-ci.yml`
+in-container validation itself, then push. It is refused twice over, either half
+sufficient. It would copy the codespace producer's `docker build` plus
+`docker run` recipe into a repo
 that cannot reach the codespace helper owning it — the duplicate-derivation leak
 `INVARIANTS.md` § Encapsulation names. And it would still leave every OTHER
 push-time gate evaluating the pre-commit state, so it would not fix the thing it

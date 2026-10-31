@@ -40,6 +40,7 @@ done
 # below yields the same string at any indent >= 1 and a retyped literal here
 # would mask nothing. scripts/lib/repo-context.sh states that in full beside the
 # declaration.
+# shellcheck source=SCRIPTDIR/../scripts/lib/repo-context.sh
 source "$CONTEXT_LIB"
 
 # The scratch dir, its single cleanup trap, the counters, assert_case and the
@@ -49,6 +50,7 @@ harness="${script_dir}/lib/bash-test-harness.sh"
   printf 'FATAL: shared test harness not found at %s\n' "$harness" >&2
   exit 1
 }
+# shellcheck source=SCRIPTDIR/lib/bash-test-harness.sh
 source "$harness"
 
 # A standalone comparison so a round-trip expectation can be asserted through

@@ -4,9 +4,12 @@
 # Both sides execute THIS file:
 #
 #   - Locally: the push gate (.claude/hooks/scan-local-ci-passed.sh, cs#1318 /
-#     cs#1534) builds docker/Dockerfile.ci and runs the resulting node-ci
-#     container over the mounted repo. The container's entrypoint executes these
-#     steps. Exit 0 writes the SHA-pinned marker; anything else blocks the push.
+#     cs#1534) runs nothing itself: it lets a push through only on a pass
+#     marker for HEAD, which only the codespace producer
+#     (`codespace.scan.local_ci_producer`) writes, after building
+#     docker/Dockerfile.ci and running this SAME image with the SAME steps over
+#     a clean clone of HEAD (cs#1823). The container's entrypoint executes these
+#     steps; any non-zero exit means no marker is written and the push blocks.
 #   - In CI: the `validate` job in .github/workflows/ci.yml builds the SAME
 #     Dockerfile.ci and runs the SAME image the SAME way.
 #
@@ -20,10 +23,17 @@
 # divergence INVARIANTS.md § Local CI Equivalence exists to prevent.
 #
 # This repo ships YAML manifests and shell, not an application: there is no
-# lint, type-check, or build step to run. Its validation surface is the set of
-# fail-closed gates below, each paired with its own test suite.
+# type-check or build step to run. Its validation surface is a shell lint and
+# the set of fail-closed gates below, each paired with its own test suite.
 
 steps:
+  # Every tracked shell file, linted with the estate's one shell-lint
+  # definition, `lint_shell_repo`, which the node-ci image bakes at
+  # /opt/node-ci/scripts/lib/shell-lint.sh (codespace#1980).
+  - name: shellcheck (warning+)
+    run: . /opt/node-ci/scripts/lib/shell-lint.sh && lint_shell_repo "$PWD"
+    timeout: 120
+
   # The store-side half of the version-drift chain. miner-fleet's
   # release-image.yml already fails a release on git-tag vs package.json drift
   # (miner-fleet's DECISIONS.md entry 6); this catches manifest vs compose drift,

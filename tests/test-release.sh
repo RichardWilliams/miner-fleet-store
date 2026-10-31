@@ -43,7 +43,9 @@ for library in "$CONTEXT_LIB" "$RELEASE_LIB"; do
     exit 1
   }
 done
+# shellcheck source=SCRIPTDIR/../scripts/lib/repo-context.sh
 source "$CONTEXT_LIB"
+# shellcheck source=SCRIPTDIR/../scripts/lib/release-context.sh
 source "$RELEASE_LIB"
 
 readonly PREVIOUS_VERSION="0.2.0"
@@ -74,6 +76,7 @@ harness="${script_dir}/lib/bash-test-harness.sh"
   printf 'FATAL: shared test harness not found at %s\n' "$harness" >&2
   exit 1
 }
+# shellcheck source=SCRIPTDIR/lib/bash-test-harness.sh
 source "$harness"
 
 # ---------------------------------------------------------------------------

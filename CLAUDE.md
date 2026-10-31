@@ -71,21 +71,20 @@ of them.
 ## Validation
 
 **This repo has no `package.json`, no build, and no TypeScript.** There is no
-lint, type-check, or compile command to run, and this file deliberately does not
-claim one. Do not copy a validation command block from `miner-fleet` or any
-sibling repo into this file — those commands cannot run here, and a validation
-section that names commands the repo does not have is a false claim about the
-repo.
+type-check or compile command to run, and no lint command beyond the shell lint
+`.local-ci.yml` runs; this file deliberately does not claim one. Do not copy a
+validation command block from `miner-fleet` or any sibling repo into this file —
+those commands cannot run here, and a validation section that names commands the
+repo does not have is a false claim about the repo.
 
-It does have a mechanical check. `.local-ci.yml` is the canonical step set, run
-identically by the push gate and by CI inside the pinned image:
+It does have mechanical checks. `.local-ci.yml` is the canonical step set and
+the one place its steps are listed; read it there rather than from a copy. CI
+runs it inside the pinned image. The push gate runs nothing itself: it lets a
+push through only on a pass marker for HEAD, which only the codespace producer
+writes, after building and running that SAME image with the SAME steps over a
+clean clone of HEAD (cs#1823).
 
-```bash
-bash scripts/check-version-drift.sh      # manifest version vs compose image tag
-bash tests/test-check-version-drift.sh   # that check's own tests
-```
-
-What replaces it, before any push:
+Checked by hand before any push, in addition to those steps:
 
 1. **Privacy scan.** Confirm nothing in the tracked tree matches the banned
    classes listed at the top of this file. This is the load-bearing check for a
@@ -99,19 +98,20 @@ What replaces it, before any push:
    present, per the recorded pinning decision.
 
 When this repo eventually gains a mechanical check for any of the above, it is
-declared once in `.local-ci.yml` so the local gate and CI run the same thing —
+declared once in `.local-ci.yml` so CI and the producer behind the push gate run
+the same thing —
 and this section is updated to point at it rather than describing it twice.
 
 ---
 
 ## Bootstrap / disaster recovery
 
-Every one of the 40 symlinks under `.claude/` points into `.engine-context/`,
+Every one of the 38 symlinks under `.claude/` points into `.engine-context/`,
 which is deliberately excluded from version control via `.git/info/exclude`
 rather than the committed `.gitignore` — this matches the canonical
 managed-repo pattern, where the snapshot is a local materialisation, not a
 tracked artifact. On a bare clone, or after any disaster-recovery
-re-checkout, `.engine-context/` does not exist and all 40 symlinks dangle.
+re-checkout, `.engine-context/` does not exist and all 38 symlinks dangle.
 `.claude/settings.json` is itself gitignored and is only produced by
 `sync-settings.sh` / `worktree-new.sh` reading
 `.claude/canonical/hook-registrations.json` — which cannot resolve while it
@@ -123,8 +123,8 @@ possible failure mode for a repo whose headline constraint is "world-readable,
 never leak a LAN IP / hostname / MAC / credential, permanently."
 
 **This is disaster recovery on an already-managed repo, not virgin bootstrap.**
-All 40 `.claude/` symlinks — including `.claude/hooks`, `.claude/shared`,
-`.claude/review-triggers.json`, and `.claude/canonical/hook-registrations.json`
+All 38 `.claude/` symlinks — including `.claude/hooks`, `.claude/shared`,
+and `.claude/canonical/hook-registrations.json`
 — are tracked in git (`git ls-tree HEAD` shows mode `120000`) and reappear on
 any clone or checkout automatically. They will be present but DANGLING until
 `.engine-context/` is materialised. Do not try to (re-)create any of them —
