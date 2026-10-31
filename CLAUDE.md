@@ -84,23 +84,29 @@ push through only on a pass marker for HEAD, which only the codespace producer
 writes, after building and running that SAME image with the SAME steps over a
 clean clone of HEAD (cs#1823).
 
-Checked by hand before any push, in addition to those steps:
+Some of what was once checked by hand is now a step there: the app manifest and
+the compose file are parsed fail-closed as YAML by the `deploy-contract` and
+`release-notes-drift` steps, the `version-drift` step fails unless the compose
+carries exactly one image reference pinned by both a semver tag and a sha256
+digest, and the `compose-hardening` step fails when there is no `server`
+service.
+
+Checked by hand before any push, because no step checks it:
 
 1. **Privacy scan.** Confirm nothing in the tracked tree matches the banned
    classes listed at the top of this file. This is the load-bearing check for a
    public repo.
-2. **YAML parses.** Every manifest and compose file is valid YAML.
-3. **Naming matches `DECISIONS.md`.** Store id, app id, app directory name, the
-   compose service name and `app_proxy`'s `APP_HOST` all agree with the recorded
-   naming decision. The service name is the one that fails silently — the
-   container stays healthy and only the proxy in front of it resolves nothing.
-4. **Image reference is fully pinned.** Both a semver tag and a sha256 digest are
-   present, per the recorded pinning decision.
+2. **The store manifest parses.** `umbrel-app-store.yml` is valid YAML; no step
+   reads it.
+3. **Naming matches `DECISIONS.md`.** Store id, app id, app directory name and
+   `app_proxy`'s `APP_HOST` all agree with the recorded naming decision.
+   `APP_HOST` is the one that fails silently — the container stays healthy and
+   only the proxy in front of it resolves nothing.
 
 When this repo eventually gains a mechanical check for any of the above, it is
 declared once in `.local-ci.yml` so CI and the producer behind the push gate run
-the same thing —
-and this section is updated to point at it rather than describing it twice.
+the same thing — and this section is updated to point at it rather than
+describing it twice.
 
 ---
 
