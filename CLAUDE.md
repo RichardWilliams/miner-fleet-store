@@ -91,11 +91,13 @@ carries exactly one image reference pinned by both a semver tag and a sha256
 digest, and the `compose-hardening` step fails when there is no `server`
 service.
 
-Checked by hand before any push, because no step checks it:
+Checked by hand before any push, because no step checks it in full:
 
 1. **Privacy scan.** Confirm nothing in the tracked tree matches the banned
    classes listed at the top of this file. This is the load-bearing check for a
-   public repo.
+   public repo. The `secret-leak` step refuses credential shapes in the files a
+   release bump writes; no step checks the rest of the tracked tree or the LAN
+   address, hostname, MAC and location classes, so this hand check stays.
 2. **The store manifest parses.** `umbrel-app-store.yml` is valid YAML; no step
    reads it.
 3. **Naming matches `DECISIONS.md`.** Store id, app id, app directory name and
