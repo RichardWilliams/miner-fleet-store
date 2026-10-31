@@ -13,8 +13,11 @@ jobs:
     # (cs#1527/cs#1533/cs#1534). The step SET is NOT maintained here: it lives
     # in `.local-ci.yml` at the repo root — the single canonical source the
     # node-ci entrypoint executes over the mounted repo. The local push gate
-    # (`.claude/hooks/scan-local-ci-passed.sh`) builds + runs the SAME image
-    # with the SAME steps.
+    # (`.claude/hooks/scan-local-ci-passed.sh`) runs nothing itself: it lets a
+    # push through only on a pass marker for HEAD, which only the codespace
+    # producer (`codespace.scan.local_ci_producer`) writes, after building and
+    # running this SAME image with the SAME steps over a clean clone of HEAD
+    # (cs#1823).
     #
     # `packages: read` + the ghcr login are required to PULL the node-ci base:
     # the node-ci package is private, so an unauthenticated manifest fetch

@@ -41,6 +41,7 @@ harness="${script_dir}/lib/bash-test-harness.sh"
   printf 'FATAL: shared test harness not found at %s\n' "$harness" >&2
   exit 1
 }
+# shellcheck source=SCRIPTDIR/lib/bash-test-harness.sh
 source "$harness"
 
 # Build a fixture repo. $1 = fixture name, $2 = the whole compose file body.

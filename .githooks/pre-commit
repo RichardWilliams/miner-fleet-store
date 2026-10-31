@@ -5,14 +5,40 @@
 #   1. Block direct commits to the main branch.
 #   2. Scan for dangling references to files being deleted in this commit.
 #   3. Lint agent files for common anti-patterns when .claude/agents/*.md files are staged.
+#   4. Verify the generated .claude/settings.json is in sync with its canonical inputs.
+#   5. Refuse staged env-secrets files in any letter case (scripts/check-staged-env-files.sh).
+#
+# Steps 2-5 call scripts, and one of those sources libraries. Their names
+# are declared once, in scripts/lib/pre-commit-steps.sh, which this hook
+# sources. When that file or any file it lists is missing, the commit is
+# refused: a check whose script is absent is a check that does not run
+# (cs#1969). The codespace delivers the hook and every listed file together
+# (scripts/propagate-canonical-copies.sh).
 #
 # Activate with: git config core.hooksPath .githooks
-# Bypass (genuine emergency only): ALLOW_HOOK_BYPASS=1 git commit
-#   (the .claude/hooks/block-hook-bypass.sh PreToolUse hook blocks --no-verify)
+# Bypass (genuine emergency only): ALLOW_HOOK_BYPASS=1 git commit --no-verify
+#   --no-verify is what skips this hook; nothing in this hook reads
+#   ALLOW_HOOK_BYPASS. The inline ALLOW_HOOK_BYPASS=1 prefix admits
+#   --no-verify past the .claude/hooks/block-hook-bypass.sh PreToolUse hook,
+#   which blocks --no-verify without it.
+
+# The bypass instruction every block below prints, held once.
+readonly BYPASS_HINT="To bypass (genuine emergency only): ALLOW_HOOK_BYPASS=1 git commit --no-verify  (and add the justification in the commit message)"
+
+# The repo checked is the one this hook sits in, <repo>/.githooks/, never the
+# caller's cwd: every git call names it with -C (cs#2015). It is the parent of
+# the hook's directory, never `git rev-parse --show-toplevel` run there: git
+# exports GIT_DIR to a hook, and then takes the cwd as the work tree. It is
+# derived here and not by a sourced helper (bootstrap ordering,
+# docs/hook-standards.md § 4.1): the step list below is found through it.
+if ! REPO_ROOT="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"; then
+    echo "ERROR: cannot resolve the repo holding ${BASH_SOURCE[0]}; no check ran." >&2
+    exit 1
+fi
 
 # --- 1. Block commits to the protected branch ---
 PROTECTED_BRANCH="${PROTECTED_BRANCH:-main}"
-branch="$(git symbolic-ref --short HEAD 2>/dev/null)"
+branch="$(git -C "$REPO_ROOT" symbolic-ref --short HEAD 2>/dev/null)"
 
 if [[ "$branch" == "$PROTECTED_BRANCH" ]]; then
     echo "ERROR: direct commits to main are not allowed." >&2
@@ -21,35 +47,60 @@ if [[ "$branch" == "$PROTECTED_BRANCH" ]]; then
     echo "  — or —" >&2
     echo "  git checkout -b <type>/<description>" >&2
     echo "" >&2
-    echo "To bypass (genuine emergency only): ALLOW_HOOK_BYPASS=1 git commit  (and add the justification in the commit message)" >&2
+    echo "$BYPASS_HINT" >&2
+    exit 1
+fi
+
+# --- The step files must all be present (cs#1969) ---
+steps_list="${REPO_ROOT}/scripts/lib/pre-commit-steps.sh"
+resync_hint="Re-sync this repo's hook and step files: from the codespace checkout, run scripts/propagate-canonical-copies.sh --repo ${REPO_ROOT}"
+
+if [[ ! -f "$steps_list" ]]; then
+    echo "ERROR: ${steps_list#"${REPO_ROOT}/"} is missing; this hook cannot run its checks." >&2
+    echo "$resync_hint" >&2
+    echo "" >&2
+    echo "$BYPASS_HINT" >&2
+    exit 1
+fi
+# shellcheck source=../scripts/lib/pre-commit-steps.sh
+. "$steps_list"
+
+mapfile -t missing_steps < <(pre_commit_missing "$REPO_ROOT")
+if [[ ${#missing_steps[@]} -gt 0 ]]; then
+    echo "ERROR: files this hook's checks need are missing:" >&2
+    printf '  %s\n' "${missing_steps[@]}" >&2
+    echo "$resync_hint" >&2
+    echo "" >&2
+    echo "$BYPASS_HINT" >&2
     exit 1
 fi
 
 # --- 2. Check for dangling references to deleted files ---
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
-dangling_check="${REPO_ROOT}/scripts/check-dangling-refs.sh"
-
-if [[ -x "$dangling_check" ]]; then
-    "$dangling_check" || exit 1
-fi
+"${REPO_ROOT}/${PRE_COMMIT_DANGLING_REFS}" || exit 1
 
 # --- 3. Lint staged agent files for common anti-patterns ---
-agent_lint="${REPO_ROOT}/scripts/check-agent-lint.sh"
-
-if [[ -x "$agent_lint" ]]; then
-    mapfile -t staged_agents < <(git diff --cached --name-only --diff-filter=ACM | grep -E '^\.claude/agents/[^/]+\.md$' || true)
-    if [[ ${#staged_agents[@]} -gt 0 ]]; then
-        staged_abs=()
-        for f in "${staged_agents[@]}"; do
-            staged_abs+=("${REPO_ROOT}/${f}")
-        done
-        "$agent_lint" --files "${staged_abs[@]}" || {
-            echo "" >&2
-            echo "Agent lint failed. Fix the anti-patterns above before committing." >&2
-            echo "To bypass (genuine emergency only): ALLOW_HOOK_BYPASS=1 git commit  (and add the justification in the commit message)" >&2
-            exit 1
-        }
-    fi
+# The staged files steps 3 and 4 read, listed once. A listing that failed is
+# not an empty staged set, which would skip both checks: it refuses the commit.
+if ! staged_files="$(git -C "$REPO_ROOT" diff --cached --name-only --diff-filter=ACM)"; then
+    echo "ERROR: cannot list the staged files (git failed above); the agent lint and the settings check could not tell what to check." >&2
+    echo "$BYPASS_HINT" >&2
+    exit 1
+fi
+staged_agents=()
+while IFS= read -r f; do
+    [[ "$f" =~ ^\.claude/agents/[^/]+\.md$ ]] && staged_agents+=("$f")
+done <<< "$staged_files"
+if [[ ${#staged_agents[@]} -gt 0 ]]; then
+    staged_abs=()
+    for f in "${staged_agents[@]}"; do
+        staged_abs+=("${REPO_ROOT}/${f}")
+    done
+    "${REPO_ROOT}/${PRE_COMMIT_AGENT_LINT}" --files "${staged_abs[@]}" || {
+        echo "" >&2
+        echo "Agent lint failed. Fix the anti-patterns above before committing." >&2
+        echo "$BYPASS_HINT" >&2
+        exit 1
+    }
 fi
 
 # --- 4. Verify generated .claude/settings.json is in sync with canonical inputs ---
@@ -57,25 +108,62 @@ fi
 # plus .claude/settings.local-additions.json. Hand-edits to settings.json
 # (or stale regenerations after editing the inputs) bypass the canonical
 # channel. Run sync-settings.sh in --verify mode and refuse the commit
-# if the on-disk file is out of sync.
-sync_settings="${REPO_ROOT}/scripts/sync-settings.sh"
-canonical_fragment="${REPO_ROOT}/.claude/canonical/hook-registrations.json"
+# if the on-disk file is out of sync. Each status it can exit with gets its
+# own message, and each but 0 refuses the commit: 1 is out of sync or an
+# error it names; 2 is its "skipped: not onboarded", which here, with the
+# canonical fragment present, means .claude/settings.local-additions.json
+# is missing, so settings.json was not verified; any other status is one
+# it does not define, so nothing was verified.
+canonical_fragment_rel=".claude/canonical/hook-registrations.json"
 
-if [[ -x "$sync_settings" ]] && [[ -f "$canonical_fragment" ]]; then
+if [[ -f "${REPO_ROOT}/${canonical_fragment_rel}" ]]; then
     # Run only when staged changes touch the inputs, the output, the
     # generator itself, or the pre-commit hook. Avoids slowing every
-    # commit with a check that almost never has anything to verify.
-    relevant=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(\.claude/(canonical/hook-registrations\.json|settings\.json|settings\.local-additions\.json)|scripts/sync-settings\.sh|\.githooks/pre-commit)$' || true)
-    if [[ -n "$relevant" ]]; then
-        "$sync_settings" --repo "$REPO_ROOT" --verify || {
-            echo "" >&2
-            echo "settings.json is out of sync with canonical inputs." >&2
-            echo "Regenerate, stage, and commit again:" >&2
-            echo "  scripts/sync-settings.sh --repo $REPO_ROOT" >&2
-            echo "  git add .claude/settings.json" >&2
-            echo "" >&2
-            echo "To bypass (genuine emergency only): ALLOW_HOOK_BYPASS=1 git commit  (and add the justification in the commit message)" >&2
-            exit 1
-        }
+    # commit with a check that almost never has anything to verify. The
+    # generator is named through the step list, like every step script.
+    settings_inputs_staged=false
+    while IFS= read -r f; do
+        case "$f" in
+            "$canonical_fragment_rel" | .claude/settings.json | .claude/settings.local-additions.json \
+                | "$PRE_COMMIT_SYNC_SETTINGS" | .githooks/pre-commit)
+                settings_inputs_staged=true ;;
+        esac
+    done <<< "$staged_files"
+    if [[ "$settings_inputs_staged" == true ]]; then
+        sync_status=0
+        "${REPO_ROOT}/${PRE_COMMIT_SYNC_SETTINGS}" --repo "$REPO_ROOT" --verify || sync_status=$?
+        case "$sync_status" in
+            0) ;;
+            1)
+                echo "" >&2
+                echo "settings.json is out of sync with canonical inputs, or ${PRE_COMMIT_SYNC_SETTINGS} could not verify it (its message above says which)." >&2
+                echo "Regenerate, stage, and commit again:" >&2
+                echo "  ${PRE_COMMIT_SYNC_SETTINGS} --repo $REPO_ROOT" >&2
+                echo "  git add .claude/settings.json" >&2
+                echo "" >&2
+                echo "$BYPASS_HINT" >&2
+                exit 1 ;;
+            2)
+                echo "" >&2
+                echo "settings.json was not verified: .claude/settings.local-additions.json is missing, so ${PRE_COMMIT_SYNC_SETTINGS} skipped it." >&2
+                echo "Restore .claude/settings.local-additions.json, then commit again." >&2
+                echo "" >&2
+                echo "$BYPASS_HINT" >&2
+                exit 1 ;;
+            *)
+                echo "" >&2
+                echo "ERROR: ${PRE_COMMIT_SYNC_SETTINGS} exited ${sync_status}, a status it does not define (it defines 0 verified, 1 failed verification, 2 skipped); settings.json was not verified." >&2
+                echo "" >&2
+                echo "$BYPASS_HINT" >&2
+                exit 1 ;;
+        esac
     fi
 fi
+
+# --- 5. Refuse staged env-secrets files in any letter case (cs#1815) ---
+# gitignore cannot ignore case variants of `.env.example` under
+# core.ignorecase=true, so a commit-time guard is the only place this is
+# enforced. The rejection rule lives in the script alone; this hook only
+# invokes it. Runs last: it inspects every staged path, and the checks
+# above decide whether a commit is attempted on this branch at all.
+"${REPO_ROOT}/${PRE_COMMIT_ENV_FILES}" --repo-root "$REPO_ROOT" || exit 1
