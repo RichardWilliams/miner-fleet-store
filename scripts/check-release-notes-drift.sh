@@ -75,7 +75,7 @@ vendor_root="${repo_root}/${VENDOR_REL_DIR}"
 # Guard order: the interpreter this gate cannot work without, then the files it
 # reads. A missing python3 diagnosed here beats a parse error further down.
 command -v python3 >/dev/null 2>&1 \
-  || fail "python3 not found on PATH; this gate parses YAML with it because the pinned CI image ships no jq and no yq"
+  || fail "python3 not found on PATH; this gate parses YAML with it because the pinned CI image ships no YAML parser (no yq; jq reads JSON only)"
 [[ -f "$HELPER" ]] || fail "shared manifest parser not found at ${HELPER}"
 [[ -f "$manifest" ]] || fail "app manifest not found at ${manifest}"
 [[ -d "$vendor_root" ]] || fail "vendored upstream directory not found at ${vendor_root} — scripts/release.sh writes it at bump time"

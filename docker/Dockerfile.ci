@@ -24,9 +24,9 @@
 # THE ONE ADDED LAYER — python3-yaml. The gates read the app manifest, the
 # compose file and the vendored deployment contract with a real parser rather
 # than by grepping structured documents. The base image carries python3 but no
-# YAML parser at all, and carries neither `jq` nor `yq`, so python3 plus PyYAML
-# is the only parser both this image and the operator's machine are guaranteed
-# to have. Installed from apt rather than pip because the base ships a
+# YAML parser at all: it has no `yq`, and its `jq` reads JSON only. So python3
+# plus PyYAML is the only parser both this image and the operator's machine are
+# guaranteed to have. Installed from apt rather than pip because the base ships a
 # distribution python3, and the lists are cleaned in the same layer so the image
 # does not carry an apt cache.
 #
