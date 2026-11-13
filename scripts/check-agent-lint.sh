@@ -233,8 +233,9 @@ check_meta_syntax() {
     var video wbr
     # Reviewer-agent canonical placeholders. These are NOT HTML tags but
     # are intentionally bare in agent documentation: `workbench-output` is
-    # the wrapper marker every reviewer emits its JSON envelope inside;
-    # `agent-name`, `relative-path`, `number` are example placeholders in
+    # the envelope `brand-copywriter` returns its report to its caller in
+    # (a reviewer writes its report as a bare-JSON marker instead, per
+    # .claude/shared/reviewer-marker-protocol.md); `agent-name`, `relative-path`, `number` are example placeholders in
     # documentation showing what an agent should produce. Exempting them
     # keeps the lint focused on accidental angle-bracket prose tokens
     # (the original target of the META_SYNTAX rule).

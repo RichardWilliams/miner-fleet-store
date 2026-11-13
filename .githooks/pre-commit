@@ -108,15 +108,23 @@ fi
 # plus .claude/settings.local-additions.json. Hand-edits to settings.json
 # (or stale regenerations after editing the inputs) bypass the canonical
 # channel. Run sync-settings.sh in --verify mode and refuse the commit
-# if the on-disk file is out of sync. Each status it can exit with gets its
-# own message, and each but 0 refuses the commit: 1 is out of sync or an
-# error it names; 2 is its "skipped: not onboarded", which here, with the
-# canonical fragment present, means .claude/settings.local-additions.json
-# is missing, so settings.json was not verified; any other status is one
-# it does not define, so nothing was verified.
+# if the on-disk file is out of sync. Three outcomes, by the fragment entry:
+#   - absent (no entry at all): the repo is not onboarded, the step skips,
+#     and the commit proceeds;
+#   - a dangling symlink (a managed repo whose .engine-context snapshot is
+#     missing or stale): the step runs, and sync-settings.sh refuses it;
+#   - present: the step runs and verifies settings.json.
+# This step asks only whether an entry exists; whether it can be read is
+# decided by sync-settings.sh alone (cs#2029). Each status it can exit with
+# gets its own message, and each but 0 refuses the commit: 1 is out of sync
+# or an error it names, an unresolvable input among them; 2 is its
+# "skipped: not onboarded", which here, with a fragment entry present, means
+# .claude/settings.local-additions.json is absent, so settings.json was not
+# verified; any other status is one it does not define, so nothing was
+# verified.
 canonical_fragment_rel=".claude/canonical/hook-registrations.json"
 
-if [[ -f "${REPO_ROOT}/${canonical_fragment_rel}" ]]; then
+if [[ -e "${REPO_ROOT}/${canonical_fragment_rel}" || -L "${REPO_ROOT}/${canonical_fragment_rel}" ]]; then
     # Run only when staged changes touch the inputs, the output, the
     # generator itself, or the pre-commit hook. Avoids slowing every
     # commit with a check that almost never has anything to verify. The
@@ -137,7 +145,8 @@ if [[ -f "${REPO_ROOT}/${canonical_fragment_rel}" ]]; then
             1)
                 echo "" >&2
                 echo "settings.json is out of sync with canonical inputs, or ${PRE_COMMIT_SYNC_SETTINGS} could not verify it (its message above says which)." >&2
-                echo "Regenerate, stage, and commit again:" >&2
+                echo "If that message says an input cannot be resolved, follow the remedy it names, then commit again." >&2
+                echo "Otherwise regenerate, stage, and commit again:" >&2
                 echo "  ${PRE_COMMIT_SYNC_SETTINGS} --repo $REPO_ROOT" >&2
                 echo "  git add .claude/settings.json" >&2
                 echo "" >&2

@@ -24,9 +24,9 @@
 # THE ONE ADDED LAYER — python3-yaml. The gates read the app manifest, the
 # compose file and the vendored deployment contract with a real parser rather
 # than by grepping structured documents. The base image carries python3 but no
-# YAML parser at all, and carries neither `jq` nor `yq`, so python3 plus PyYAML
-# is the only parser both this image and the operator's machine are guaranteed
-# to have. Installed from apt rather than pip because the base ships a
+# YAML parser at all: it has no `yq`, and its `jq` reads JSON only. So python3
+# plus PyYAML is the only parser both this image and the operator's machine are
+# guaranteed to have. Installed from apt rather than pip because the base ships a
 # distribution python3, and the lists are cleaned in the same layer so the image
 # does not carry an apt cache.
 #
@@ -53,7 +53,7 @@
 # the shared node-ci base image, where its own digest pin guarantees the version
 # for every repo at once. Both keep the by-construction identity; unpinning
 # trades it for a green build.
-FROM ghcr.io/richardwilliams/node-ci:v0.2.2@sha256:b8734715b956c53b4dc4fd2933a41b97403aa59f039587a811de4e690a6d8387
+FROM ghcr.io/richardwilliams/node-ci:v0.3.0@sha256:10ba9249f1d448407b6191b6941e653f379a50317cc5a3af942eaeb5f1116bad
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3-yaml=6.0.1-2build2 \
  && rm -rf /var/lib/apt/lists/*

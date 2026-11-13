@@ -51,9 +51,11 @@
 #
 # Exit codes:
 #   0   success (generated, or verified-clean)
-#   1   error (missing dependency, malformed input, verify-mismatch)
-#   2   skipped (canonical fragment or local-additions absent — repo
-#       has not been onboarded onto the generator yet)
+#   1   error (missing dependency, malformed input, verify-mismatch, or
+#       an input that is present but cannot be read — a symlink that does
+#       not resolve, or an entry that is not a regular file, cs#2029)
+#   2   skipped (canonical fragment or local-additions absent, with no
+#       entry at all — repo has not been onboarded onto the generator yet)
 
 set -euo pipefail
 trap 'exit 130' INT
@@ -99,14 +101,40 @@ canonical="$REPO/.claude/canonical/hook-registrations.json"
 local_add="$REPO/.claude/settings.local-additions.json"
 output="$REPO/.claude/settings.json"
 
-if [[ ! -f "$canonical" ]]; then
-  echo "skip: $canonical not found — repo not onboarded onto the generator" >&2
-  exit 2
-fi
-if [[ ! -f "$local_add" ]]; then
-  echo "skip: $local_add not found — repo not onboarded onto the generator" >&2
-  exit 2
-fi
+# require_input <path> <dangling-remedy> — decide whether one input is a
+# regular file to read (cs#2029). This is the ONE definition of that decision;
+# .githooks/pre-commit step 4 asks only whether the fragment entry exists, to
+# decide whether to run this at all, and leaves the rest to it.
+#   absent (no entry at all)          → exit 2, "not onboarded"
+#   present, not a regular file:
+#     a symlink that does not resolve → exit 1, naming it as unresolvable
+#                                        and printing <dangling-remedy>
+#     anything else (a directory, ...) → exit 1, naming it as not a file
+#   a regular file, or a symlink resolving to one → return 0
+# In a managed repo the fragment is a tracked symlink into the untracked
+# .engine-context/ snapshot, so a missing or stale snapshot makes it dangle:
+# that is a repo that IS onboarded and cannot be verified, never one that is not.
+# A local-additions entry that is a dangling symlink is the same case and is
+# refused the same way; its remedy names its own target, not the snapshot,
+# which carries only the fragment. Whether a regular file's content is
+# readable JSON is decided by the validation below.
+require_input() {
+  local path="$1" dangling_remedy="$2"
+  if [[ ! -e "$path" && ! -L "$path" ]]; then
+    echo "skip: $path not found — repo not onboarded onto the generator" >&2
+    exit 2
+  fi
+  if [[ -L "$path" && ! -e "$path" ]]; then
+    echo "ERROR: $path is a symlink that cannot be resolved — ${dangling_remedy}" >&2
+    exit 1
+  fi
+  if [[ ! -f "$path" ]]; then
+    echo "ERROR: $path exists but is not a regular file" >&2
+    exit 1
+  fi
+}
+require_input "$canonical" "the .engine-context snapshot it points into is missing or stale. Restore it from the codespace checkout: scripts/realign-engine-context.sh $REPO <codespace checkout>"
+require_input "$local_add" "restore the file it points to, or replace the link with the file"
 
 # Validate JSON inputs early so the failure mode is "your input is bad",
 # not "the regenerated file looks weird".

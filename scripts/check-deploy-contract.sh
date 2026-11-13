@@ -102,7 +102,7 @@ while (( $# > 0 )); do
 done
 
 command -v python3 >/dev/null 2>&1 \
-  || fail "python3 not found on PATH; this gate parses the contract and the compose with it because the pinned CI image ships no jq and no yq"
+  || fail "python3 not found on PATH; this gate parses the contract and the compose with it because the pinned CI image ships no YAML parser (no yq; jq reads JSON only)"
 [[ -f "$HELPER" ]] || fail "shared manifest parser not found at ${HELPER}"
 
 [[ -n "$compose" ]] || compose="${repo_root}/${COMPOSE_REL_PATH}"

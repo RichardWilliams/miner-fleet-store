@@ -6,8 +6,8 @@ driver (`scripts/release.sh`) and by both new gates
 It is a module, not an executable: mode 644, no shebang, never `./`-run.
 
 WHY PYTHON.  The pinned CI image carries bash, git, grep, sed and python3 and
-carries neither `jq` nor `yq`, so python3 is the only parser both the container
-and the operator's machine are guaranteed to have.  Everything the three
+no YAML parser (no `yq`; its `jq` reads JSON only), so python3 is the only
+parser both the container and the operator's machine are guaranteed to have.  Everything the three
 consumers need to read or write is here, once, so the writer (the driver) and
 the reader (the drift gate) cannot drift apart.
 
