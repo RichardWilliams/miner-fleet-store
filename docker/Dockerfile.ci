@@ -53,7 +53,7 @@
 # the shared node-ci base image, where its own digest pin guarantees the version
 # for every repo at once. Both keep the by-construction identity; unpinning
 # trades it for a green build.
-FROM ghcr.io/richardwilliams/node-ci:v0.3.0@sha256:10ba9249f1d448407b6191b6941e653f379a50317cc5a3af942eaeb5f1116bad
+FROM ghcr.io/richardwilliams/node-ci:v0.4.0@sha256:106347269bcb0fa72574d49be4731232b2414b08e3d06b13b40923c48d81d0fa
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3-yaml=6.0.1-2build2 \
  && rm -rf /var/lib/apt/lists/*
